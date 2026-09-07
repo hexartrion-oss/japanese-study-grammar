@@ -13,11 +13,11 @@ on:
         type: choice
         options:
           - ""
-          - adverb
-          - quotation
-          - emphasis
-          - business
-          - literary
+          - 부사
+          - 인용
+          - 강조·역접
+          - 비즈니스
+          - N1문어체
       mail_to:
         description: "수동 실행 시 단일 수신자 (비우면 EMAIL_RECIPIENTS 사용)"
         required: false
@@ -66,7 +66,7 @@ jobs:
         with:
           name: reading-output
           path: |
-           JPN_*.pdf
+            JPN_*.pdf
             run_log.txt
           if-no-files-found: ignore
           retention-days: 7
