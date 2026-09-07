@@ -1,0 +1,6 @@
+.env
+*.pdf
+run_log.txt
+__pycache__/
+*.pyc
+.venv/
