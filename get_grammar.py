@@ -269,32 +269,33 @@ def generate_passage(category: dict, history: dict):
 WEEKDAY_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
-def find_font() -> str:
+def find_font(style: str = "") -> str:
+    """style: "" (Regular) 또는 "B" (Bold). Bold 파일이 없으면 Regular로 대체한다."""
     import glob
-    env_font = os.environ.get("JAPANESE_FONT_PATH")
+    env_key = "JAPANESE_FONT_PATH_BOLD" if style == "B" else "JAPANESE_FONT_PATH"
+    env_font = os.environ.get(env_key) or (os.environ.get("JAPANESE_FONT_PATH") if style != "B" else None)
     if env_font and os.path.exists(env_font):
         return env_font
-    for pattern in [
+    patterns = [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/**/NotoSansCJK*Bold*.ttc",
+    ] if style == "B" else [
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/**/NotoSansCJK*Regular*.ttc",
         "/usr/share/fonts/**/*CJK*Regular*.ttc",
         "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
         "/usr/share/fonts/**/*ipag*.ttf",
-    ]:
+    ]
+    for pattern in patterns:
         hits = glob.glob(pattern, recursive=True)
         if hits:
             return sorted(hits)[0]
+    if style == "B":
+        return find_font("")  # Bold 못 찾으면 Regular로 대체
     raise FileNotFoundError("일본어 폰트를 찾을 수 없습니다. JAPANESE_FONT_PATH를 지정하세요.")
 
 
-def header_lines(today: datetime.date, level_tag: str, topic: str) -> list:
-    week_no = today.isocalendar()[1]
-    return [
-        "日本語学習 読み物",
-        f"{today.isoformat()} ({WEEKDAY_EN[today.weekday()]}) | Week {week_no}",
-        f"[ {level_tag} ]",
-        f"テーマ: {topic}",
-    ]
+# PDF/HTML은 header_lines() 대신 build_pdf/build_html 안에서 직접 스타일링한다.
 
 
 def split_sentences(passage: str) -> list:
@@ -304,23 +305,60 @@ def split_sentences(passage: str) -> list:
 
 
 class ReadingPDF(FPDF):
-    def __init__(self, font_path: str):
+    def __init__(self, font_regular: str, font_bold: str):
         super().__init__()
-        self.add_font("JP", "", font_path)
+        self.add_font("JP", "", font_regular)
+        self.add_font("JP", "B", font_bold)
         self.set_auto_page_break(auto=True, margin=18)
 
 
 def build_pdf(today: datetime.date, level_tag: str, topic: str, passage: str) -> str:
-    font_path = find_font()
-    pdf = ReadingPDF(font_path)
+    font_regular = find_font("")
+    font_bold = find_font("B")
+    pdf = ReadingPDF(font_regular, font_bold)
     pdf.add_page()
-    pdf.set_font("JP", size=11)
-    for line in header_lines(today, level_tag, topic):
-        pdf.multi_cell(0, 7, line, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    page_w = pdf.w - pdf.l_margin - pdf.r_margin
+    week_no = today.isocalendar()[1]
+    date_line = f"{today.isoformat()} ({WEEKDAY_EN[today.weekday()]}) | Week {week_no}"
+
+    # 메인 타이틀 — 크게, 굵게, 중앙 정렬
+    pdf.set_font("JP", "B", 20)
+    pdf.set_text_color(20, 20, 20)
+    pdf.cell(page_w, 12, "日本語学習 読み物", align="C",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+    # 날짜 줄 — 중앙 정렬, 회색
+    pdf.set_font("JP", "", 11)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(page_w, 7, date_line, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(3)
+
+    # 구분선
+    pdf.set_draw_color(210, 210, 210)
+    y = pdf.get_y()
+    pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
     pdf.ln(6)
-    pdf.set_font("JP", size=12)
+
+    # 레벨 배지 — 옅은 파란 배경
+    pdf.set_fill_color(230, 241, 251)
+    pdf.set_text_color(20, 20, 20)
+    pdf.set_font("JP", "B", 12)
+    pdf.cell(page_w, 11, f"  [ {level_tag} ]", align="L", fill=True,
+              new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(4)
+
+    # 테마 — 옅은 회색
+    pdf.set_font("JP", "", 11)
+    pdf.set_text_color(150, 150, 150)
+    pdf.multi_cell(page_w, 7, f"テーマ: {topic}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(6)
+
+    # 본문
+    pdf.set_font("JP", "", 12)
+    pdf.set_text_color(20, 20, 20)
     for sentence in split_sentences(passage):
-        pdf.multi_cell(0, 8.5, sentence, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.multi_cell(page_w, 8.5, sentence, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
     output_path = os.path.join(BASE_DIR, f"JPN_{today.isoformat()}_文法活用.pdf")
     pdf.output(output_path)
     _rlog(f"[PDF] 생성 완료: {output_path}")
@@ -328,13 +366,19 @@ def build_pdf(today: datetime.date, level_tag: str, topic: str, passage: str) ->
 
 
 def build_html(today: datetime.date, level_tag: str, topic: str, passage: str) -> str:
-    head = "<br>".join(header_lines(today, level_tag, topic))
-    sentences_html = "<br>".join(split_sentences(passage))
+    week_no = today.isocalendar()[1]
+    date_line = f"{today.isoformat()} ({WEEKDAY_EN[today.weekday()]}) | Week {week_no}"
+    sentences_html = "<br><br>".join(split_sentences(passage))
     return f"""<!DOCTYPE html><html><body style="margin:0;padding:24px;
 background:#fafafa;font-family:'Helvetica Neue',Arial,'Noto Sans JP',sans-serif;color:#222">
 <div style="max-width:640px;margin:0 auto;background:#fff;padding:32px;border-radius:6px">
-<div style="font-size:13px;color:#999;line-height:1.7">{head}</div>
-<div style="margin-top:20px;font-size:16px;line-height:2">{sentences_html}</div>
+<h1 style="text-align:center;font-size:22px;font-weight:700;margin:0 0 6px">日本語学習 読み物</h1>
+<div style="text-align:center;font-size:13px;color:#888;margin-bottom:16px">{date_line}</div>
+<hr style="border:none;border-top:1px solid #eee;margin:0 0 16px">
+<div style="background:#e6f1fb;padding:8px 14px;border-radius:4px;
+font-weight:700;font-size:14px;margin-bottom:14px">[ {level_tag} ]</div>
+<div style="font-size:13px;color:#999;margin-bottom:20px">テーマ: {topic}</div>
+<div style="font-size:16px;line-height:2">{sentences_html}</div>
 </div></body></html>"""
 
 
