@@ -61,7 +61,6 @@ except ImportError:
     pass
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_PDF = os.path.join(BASE_DIR, "JPN_READING.pdf")
 HISTORY_FILE = os.path.join(BASE_DIR, "used_history.json")
 RUN_LOG_FILE = os.path.join(BASE_DIR, "run_log.txt")
 
@@ -298,6 +297,12 @@ def header_lines(today: datetime.date, level_tag: str, topic: str) -> list:
     ]
 
 
+def split_sentences(passage: str) -> list:
+    """'。' 기준으로 문장을 나눈다. 원본 템플릿처럼 문장마다 한 줄로 표시하기 위함."""
+    parts = [s.strip() for s in passage.split("。") if s.strip()]
+    return [s + "。" for s in parts]
+
+
 class ReadingPDF(FPDF):
     def __init__(self, font_path: str):
         super().__init__()
@@ -314,19 +319,22 @@ def build_pdf(today: datetime.date, level_tag: str, topic: str, passage: str) ->
         pdf.multi_cell(0, 7, line, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(6)
     pdf.set_font("JP", size=12)
-    pdf.multi_cell(0, 8.5, passage, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.output(OUTPUT_PDF)
-    _rlog(f"[PDF] 생성 완료: {OUTPUT_PDF}")
-    return OUTPUT_PDF
+    for sentence in split_sentences(passage):
+        pdf.multi_cell(0, 8.5, sentence, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    output_path = os.path.join(BASE_DIR, f"JPN_{today.isoformat()}_文法活用.pdf")
+    pdf.output(output_path)
+    _rlog(f"[PDF] 생성 완료: {output_path}")
+    return output_path
 
 
 def build_html(today: datetime.date, level_tag: str, topic: str, passage: str) -> str:
     head = "<br>".join(header_lines(today, level_tag, topic))
+    sentences_html = "<br>".join(split_sentences(passage))
     return f"""<!DOCTYPE html><html><body style="margin:0;padding:24px;
 background:#fafafa;font-family:'Helvetica Neue',Arial,'Noto Sans JP',sans-serif;color:#222">
 <div style="max-width:640px;margin:0 auto;background:#fff;padding:32px;border-radius:6px">
 <div style="font-size:13px;color:#999;line-height:1.7">{head}</div>
-<div style="margin-top:20px;font-size:16px;line-height:2">{passage}</div>
+<div style="margin-top:20px;font-size:16px;line-height:2">{sentences_html}</div>
 </div></body></html>"""
 
 
