@@ -1,22 +1,29 @@
-"""일본어 동사·문법 학습 메일링.
+"""일본어 문법 학습 메일링 (N3+).
 
-japanese-study(읽기 자료)의 자매 리포지토리.
-차이점: 활용표는 규칙 기반으로 확정 생성하고, Gemini는 예문 작성에만 쓴다.
+japanese-study의 자연스러운 지문 생성 파이프라인을 그대로 가져오되,
+학습 대상을 동사 활용이 아니라 실제 문법 구조(부사+구문 세트, 인용·전문,
+강조·역접, 비즈니스 논리 접속, N1 문어체)로 좁힌 버전이다.
 
-요일별 테마 순환 (월~일):
-  0 동사 활용 기초   1 자동사·타동사   2 수수동사   3 수동·사역
-  4 조건표현         5 복합동사        6 경어 동사
+핵심 원칙 — 전부 이전 대화에서 확정된 방침:
+1. 힌트 금지: 지문에 강조 표시나 설명을 넣지 않는다. 번역도 첨부하지 않는다.
+   학습자가 지문을 읽고 직접 번역하면서 문형을 스스로 알아채는 방식이다.
+2. 문법 카테고리 비노출: 메일 제목·본문 어디에도 오늘이 무슨 카테고리인지
+   드러내지 않는다. 카테고리 정보는 run_log.txt(운영자 로그)에만 남는다.
+3. 문형은 구조로만 채택한다: 단어 하나(예: せっかく)가 아니라 문형 세트
+   (せっかく〜のに)로만 뱅크에 올라간다.
+4. 문형 뱅크는 외부 사이트 스크래핑 없이 직접 검증해 점진적으로 확장한다.
+5. 쿨다운: 같은 문형이 너무 자주 재등장하지 않도록 최근 사용 이력을 확인한다.
 """
 
 import os
 import re
 import sys
-import glob
+import json
 import time
 import random
 import smtplib
 import datetime
-import platform
+import subprocess
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
@@ -32,8 +39,7 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
-from conjugator import conjugate, FORMS, GODAN, ICHIDAN, SURU, KURU
-import verbs as VB
+import grammar_bank as GB
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -55,17 +61,21 @@ except ImportError:
     pass
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_PDF = os.path.join(BASE_DIR, "JPN_GRAMMAR.pdf")
+OUTPUT_PDF = os.path.join(BASE_DIR, "JPN_READING.pdf")
+HISTORY_FILE = os.path.join(BASE_DIR, "used_history.json")
+RUN_LOG_FILE = os.path.join(BASE_DIR, "run_log.txt")
 
 MANUAL_RUN = os.environ.get("MANUAL_RUN") == "1"
 MANUAL_MAIL_TO = os.environ.get("MANUAL_MAIL_TO", "")
-RUN_LOG = []
-RUN_LOG_FILE = os.path.join(BASE_DIR, "run_log.txt")
+
+COOLDOWN_RUNS = 3     # 같은 카테고리에서 최근 N회 안에 쓰인 문형은 제외
+PATTERNS_PER_DAY = 5  # 하루 지문에 쓰는 문형 개수
+SENTENCE_MIN, SENTENCE_MAX = 10, 15
+MAX_GEN_ATTEMPTS = 4
 
 
 def _rlog(msg: str):
     print(msg)
-    RUN_LOG.append(str(msg))
     try:
         with open(RUN_LOG_FILE, "a", encoding="utf-8") as f:
             f.write(str(msg) + "\n")
@@ -73,68 +83,87 @@ def _rlog(msg: str):
         pass
 
 
-# ── 테마 정의 ──────────────────────────────────────────
-THEME_CONJUGATION = "conjugation"
-THEME_TRANSITIVITY = "transitivity"
-THEME_GIVING = "giving"
-THEME_VOICE = "voice"
-THEME_CONDITIONAL = "conditional"
-THEME_COMPOUND = "compound"
-THEME_KEIGO = "keigo"
-
-# 월(0) ~ 일(6)
-WEEKLY_PLAN = [
-    (THEME_CONJUGATION, "동사 활용 기초", ["N5", "N4"]),
-    (THEME_TRANSITIVITY, "자동사·타동사 짝", ["N4", "N3"]),
-    (THEME_GIVING, "수수동사 (주고받기)", ["N4", "N3"]),
-    (THEME_VOICE, "수동·사역·사역수동", ["N3", "N2"]),
-    (THEME_CONDITIONAL, "조건표현 と·ば·たら·なら", ["N3", "N2"]),
-    (THEME_COMPOUND, "복합동사", ["N2", "N1"]),
-    (THEME_KEIGO, "경어 동사 (존경어·겸양어)", ["N2", "N1"]),
-]
-
-# 테마별로 활용표에 실을 형태
-FORM_SETS = {
-    THEME_CONJUGATION: ["masu", "te", "ta", "nai", "teiru", "potential", "ba"],
-    THEME_TRANSITIVITY: ["masu", "te", "ta", "nai", "teiru"],
-    THEME_GIVING: ["masu", "te", "ta", "nai"],
-    THEME_VOICE: ["passive", "causative", "caus_pass", "te", "nai"],
-    THEME_CONDITIONAL: ["ba", "tara", "ta", "nai"],
-    THEME_COMPOUND: ["masu", "te", "ta", "nai", "potential"],
-    THEME_KEIGO: ["masu", "te", "ta", "nai"],
-}
+# ── 카테고리 선정 ──────────────────────────────────────
+def pick_category(today: datetime.date) -> dict:
+    forced = os.environ.get("FORCE_CATEGORY", "").strip()
+    if forced:
+        cat = GB.CATEGORY_BY_KEY.get(forced)
+        if cat:
+            _rlog(f"[카테고리] 강제 지정: {cat['key']}")
+            return cat
+    weekday = today.weekday()
+    cat = GB.CATEGORY_BY_WEEKDAY.get(weekday)
+    if cat is None:
+        # 주말 등 정의 안 된 요일 — 안전하게 월요일 카테고리로 대체
+        cat = GB.CATEGORY_BY_WEEKDAY[0]
+        _rlog(f"[카테고리] {today} 은 순환표에 없는 요일 — 기본값으로 대체: {cat['key']}")
+    else:
+        _rlog(f"[카테고리] {today} → {cat['key']} (내부 로그 전용, 메일엔 비노출)")
+    return cat
 
 
-def pick_theme(today: datetime.date) -> tuple:
-    if os.environ.get("FORCE_THEME"):
-        forced = os.environ["FORCE_THEME"]
-        for t in WEEKLY_PLAN:
-            if t[0] == forced:
-                _rlog(f"[테마] 강제 지정: {t[1]}")
-                return t
-    theme = WEEKLY_PLAN[today.weekday()]
-    _rlog(f"[테마] {today} ({'월화수목금토일'[today.weekday()]}) → {theme[1]}")
-    return theme
+# ── 쿨다운 이력 ────────────────────────────────────────
+def load_history() -> dict:
+    if not os.path.exists(HISTORY_FILE):
+        return {"runs": []}
+    try:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        _rlog("[이력] 파일 손상 또는 없음 — 새로 시작")
+        return {"runs": []}
+
+
+def recently_used(history: dict, category_key: str) -> set:
+    matching = [r for r in history.get("runs", []) if r.get("category") == category_key]
+    recent = matching[-COOLDOWN_RUNS:]
+    used = set()
+    for r in recent:
+        used.update(r.get("patterns", []))
+    return used
+
+
+def select_patterns(category: dict, history: dict, exclude_ids=None) -> list:
+    exclude_ids = exclude_ids or set()
+    used = recently_used(history, category["key"]) | exclude_ids
+    pool = category["patterns"]
+    candidates = [p for p in pool if p.id not in used]
+    if len(candidates) < PATTERNS_PER_DAY:
+        _rlog(f"[쿨다운] 후보 부족({len(candidates)}개) — 쿨다운 무시하고 전체 풀 사용")
+        candidates = pool
+    picked = random.sample(candidates, min(PATTERNS_PER_DAY, len(candidates)))
+    _rlog(f"[문형] 선택됨: {', '.join(p.id for p in picked)}")
+    return picked
+
+
+def append_history(history: dict, category_key: str, patterns: list, today: datetime.date):
+    history.setdefault("runs", []).append({
+        "date": today.isoformat(),
+        "category": category_key,
+        "patterns": [p.id for p in patterns],
+    })
+    # 무한정 커지지 않도록 최근 60회만 보존
+    history["runs"] = history["runs"][-60:]
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
 
 
 # ── Gemini 호출 ────────────────────────────────────────
 _GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash"]
 
 
-def _call_gemini(prompt: str, temperature: float = 0.4, max_tokens: int = 2048) -> str:
+def _call_gemini(prompt: str, temperature: float) -> str:
     if not GEMINI_AVAILABLE or not GEMINI_API_KEY:
         return ""
     client = google_genai.Client(api_key=GEMINI_API_KEY)
     for model_id in _GEMINI_MODELS:
-        print(f"[Gemini] 모델 시도: {model_id}")
         for attempt in range(2):
             try:
-                cfg = {"temperature": temperature, "max_output_tokens": max_tokens}
+                cfg = {"temperature": temperature, "max_output_tokens": 1500}
                 if "2.5" in model_id:
                     cfg["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=0)
                 res = client.models.generate_content(
-                    model=model_id,
-                    contents=prompt,
+                    model=model_id, contents=prompt,
                     config=genai_types.GenerateContentConfig(**cfg),
                 )
                 return res.text or ""
@@ -144,47 +173,111 @@ def _call_gemini(prompt: str, temperature: float = 0.4, max_tokens: int = 2048) 
                 if is_quota and attempt == 0:
                     m = re.search(r"retry in (\d+(?:\.\d+)?)", err)
                     wait = int(float(m.group(1))) + 5 if m else 60
-                    print(f"[Gemini] {model_id} 한도 초과. {wait}초 대기 후 재시도...")
+                    _rlog(f"[Gemini] {model_id} 한도 초과. {wait}초 대기 후 재시도")
                     time.sleep(wait)
                     continue
                 if is_quota:
                     time.sleep(10)
                     break
                 if ("503" in err or "UNAVAILABLE" in err) and attempt == 0:
-                    print(f"[Gemini] {model_id} 503. 30초 대기 후 재시도...")
                     time.sleep(30)
                     continue
-                print(f"[Gemini] {model_id} 오류(폴백 전환): {e}")
+                _rlog(f"[Gemini] {model_id} 오류(폴백 전환): {e}")
                 break
-    _rlog("[Gemini] 모든 모델 실패 — 예문 없이 활용표만 발송")
     return ""
 
 
-# ── 유틸 ──────────────────────────────────────────────
-def is_japanese(text: str) -> bool:
-    return bool(re.search(r"[ぁ-んァ-ン一-鿿]", text))
+def build_prompt(patterns: list, level_tag: str) -> str:
+    pattern_list = "\n".join(f"- {p.id}" for p in patterns)
+    return f"""あなたは日本語で自然な読み物を書くライターです。対象レベルはJLPT {level_tag}です。
+
+【必ず使う文型】(必ず全部、それぞれ最低1回、自然な文脈で使うこと)
+{pattern_list}
+
+【出力ルール — 絶対厳守】
+1. まず一行目に、内容を表す短い見出しを日本語で書く(文型名や文法用語は絶対に書かない、あくまで話の題材を表す一言)
+2. 二行目は「---」だけ
+3. 三行目以降に、{SENTENCE_MIN}〜{SENTENCE_MAX}文程度の、一つのはっきりしたテーマを持つ自然な日本語の文章を書く
+4. 文章は一つのまとまった話として展開すること(起承転結や心情の変化があること)。バラバラな文を並べただけにしない
+5. 上に挙げた文型を全部、不自然にならない範囲で文章中に組み込む
+6. 説明、翻訳、注釈、箇条書き、記号、マークダウンの装飾は一切書かない。読み物本文だけを書く
+7. 暴力・犯罪・死亡・宗教・政治的に偏った内容は避ける
+8. 見出しは内容だけを表すこと(文法カテゴリーが分かるような単語は使わない)"""
 
 
-def sanitize_text(text: str) -> str:
-    text = "".join(c for c in text if ord(c) <= 0xFFFF)
-    return text.replace("\r\n", "\n").replace("\r", "\n")
+def parse_gemini_output(raw: str):
+    if "---" not in raw:
+        return None, None
+    head, _, body = raw.partition("---")
+    topic = head.strip().strip("#").strip()
+    passage = body.strip()
+    passage = re.sub(r"\n{2,}", "\n", passage)
+    passage = "".join(line.strip() for line in passage.split("\n"))
+    return topic, passage
+
+
+# Gemini가 흔히 한자로 표기하는 문형 구성 요소를 히라가나로 되돌려서
+# 검증 시 놓치지 않도록 한다 (예: ば良かった → ばよかった).
+_KANJI_TO_KANA = {
+    "良かった": "よかった", "良ければ": "よければ", "良い": "よい",
+    "事": "こと", "為": "ため", "通り": "とおり", "筈": "はず",
+    "訳": "わけ", "様だ": "ようだ", "無い": "ない", "出来る": "できる",
+    "有る": "ある", "頃": "ころ", "気味": "ぎみ",
+}
+
+
+def _normalize(text: str) -> str:
+    for kanji, kana in _KANJI_TO_KANA.items():
+        text = text.replace(kanji, kana)
+    return text
+
+
+def validate_passage(passage: str, patterns: list) -> bool:
+    if not passage:
+        return False
+    sentence_count = passage.count("。")
+    if not (SENTENCE_MIN - 2 <= sentence_count <= SENTENCE_MAX + 3):
+        _rlog(f"[검증] 문장 수 {sentence_count}개 — 범위 벗어남")
+        return False
+    normalized = _normalize(passage)
+    missing = [p.id for p in patterns if not p.found_in(normalized)]
+    if missing:
+        _rlog(f"[검증] 문형 누락: {', '.join(missing)}")
+        return False
+    return True
+
+
+def generate_passage(category: dict, history: dict):
+    patterns = select_patterns(category, history)
+    temperatures = [0.7, 0.6, 0.4, 0.2]
+    for attempt in range(MAX_GEN_ATTEMPTS):
+        if attempt == 2:
+            # 두 번 실패하면 문형 조합 자체를 바꿔서 재시도
+            _rlog("[재시도] 문형 조합 교체")
+            patterns = select_patterns(category, history)
+        prompt = build_prompt(patterns, category["level_tag"])
+        raw = _call_gemini(prompt, temperatures[attempt])
+        topic, passage = parse_gemini_output(raw)
+        if passage and validate_passage(passage, patterns):
+            _rlog(f"[생성] {attempt + 1}번째 시도에서 성공")
+            return topic or "日本語の読み物", passage, patterns
+        _rlog(f"[생성] {attempt + 1}번째 시도 실패")
+    _rlog("[생성] 전체 시도 실패 — 발송 중단")
+    return None, None, patterns
+
+
+# ── PDF / 메일 템플릿 (japanese-study 원본 형식) ───────────
+WEEKDAY_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 def find_font() -> str:
+    import glob
     env_font = os.environ.get("JAPANESE_FONT_PATH")
     if env_font and os.path.exists(env_font):
         return env_font
-    system = platform.system()
-    if system == "Windows":
-        for f in [r"C:\Windows\Fonts\msgothic.ttc", r"C:\Windows\Fonts\meiryo.ttc"]:
-            if os.path.exists(f):
-                return f
-    # PDF에는 한국어 라벨·해석이 함께 들어가므로 일본어 전용 폰트(IPA 고딕 등)로는
-    # 한글 글리프가 빠진다. 일본어·한국어를 모두 포함하는 Noto CJK를 우선한다.
     for pattern in [
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/**/NotoSansCJK*Regular*.ttc",
-        "/usr/share/fonts/**/NotoSansCJK*.otf",
         "/usr/share/fonts/**/*CJK*Regular*.ttc",
         "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
         "/usr/share/fonts/**/*ipag*.ttf",
@@ -192,203 +285,60 @@ def find_font() -> str:
         hits = glob.glob(pattern, recursive=True)
         if hits:
             return sorted(hits)[0]
-    raise FileNotFoundError(
-        "일본어 폰트를 찾을 수 없습니다. JAPANESE_FONT_PATH에 .ttf 경로를 지정하세요."
-    )
+    raise FileNotFoundError("일본어 폰트를 찾을 수 없습니다. JAPANESE_FONT_PATH를 지정하세요.")
 
 
-# ── 오늘의 학습 항목 선정 ──────────────────────────────
-def build_items(theme_key: str, levels: list) -> list:
-    """[(제목, [(라벨, 내용), ...])] 형식의 표 데이터."""
-    if theme_key == THEME_TRANSITIVITY:
-        picked = random.sample(VB.PAIRS, 5)
-        return [
-            (f"{intr} / {tr}", [
-                ("자동사", f"{intr}（{ir}）— 스스로 그렇게 됨"),
-                ("타동사", f"{tr}（{tres}）— 누가 그렇게 함"),
-                ("뜻", mean),
-                ("자동사 ている", conjugate(intr, ig, ["teiru"])[0][1] + " (상태)"),
-                ("타동사 てある", conjugate(tr, tg, ["te"])[0][1] + "ある (준비된 상태)"),
-            ])
-            for intr, ir, ig, tr, tres, tg, mean in picked
-        ]
-
-    if theme_key == THEME_GIVING:
-        picked = random.sample(VB.GIVING, 5)
-        return [(v, [("뜻", mean), ("기본 예", ex)]) for v, mean, ex in picked]
-
-    if theme_key == THEME_CONDITIONAL:
-        return [(f"〜{c}", [("용법", use), ("예", ex)]) for c, use, ex in VB.CONDITIONALS]
-
-    if theme_key == THEME_COMPOUND:
-        picked = random.sample(VB.COMPOUND, 6)
-        return [(suf, [("뜻", mean), ("예", ex)]) for suf, mean, ex in picked]
-
-    if theme_key == THEME_KEIGO:
-        picked = random.sample(VB.KEIGO, 5)
-        return [
-            (base, [("뜻", mean), ("존경어", hon), ("겸양어", hum)])
-            for base, hon, hum, mean in picked
-        ]
-
-    # 활용 기초 / 태(voice) — 활용표 생성
-    pool = VB.all_verbs_for(levels)
-    picked = random.sample(pool, min(5, len(pool)))
-    form_keys = FORM_SETS[theme_key]
-    items = []
-    for v, yomi, group, mean in picked:
-        rows = [("뜻", mean), ("그룹", {"godan": "1그룹(五段)", "ichidan": "2그룹(一段)",
-                                     "suru": "3그룹(する)", "kuru": "3그룹(来る)"}[group])]
-        rows += conjugate(v, group, form_keys)
-        items.append((f"{v}（{yomi}）", rows))
-    return items
+def header_lines(today: datetime.date, level_tag: str, topic: str) -> list:
+    week_no = today.isocalendar()[1]
+    return [
+        "日本語学習 読み物",
+        f"{today.isoformat()} ({WEEKDAY_EN[today.weekday()]}) | Week {week_no}",
+        f"[ {level_tag} ]",
+        f"テーマ: {topic}",
+    ]
 
 
-# ── 예문 생성 ─────────────────────────────────────────
-def make_examples(theme_label: str, items: list, levels: list) -> dict:
-    """{제목: [예문(일본어), 한국어 해석]} — Gemini 실패 시 빈 dict."""
-    heads = [t for t, _ in items]
-    detail = "\n".join(
-        f"- {t}: " + " / ".join(f"{k}={v}" for k, v in rows[:4]) for t, rows in items
-    )
-    prompt = f"""あなたは日本語教師です。今日の学習テーマは「{theme_label}」、対象レベルはJLPT {'・'.join(levels)}です。
-
-【今日の項目】
-{detail}
-
-上の各項目について、その項目の使い方が最もよく分かる例文を1つずつ作ってください。
-
-【出力ルール — 絶対厳守】
-1. 1行に1項目。形式は「項目名｜日本語の例文｜韓国語訳」
-2. 項目名は上のリストの表記をそのまま使う
-3. 例文は20〜35字程度の自然な現代日本語にすること
-4. その項目の文法・活用が必ず文中に現れること
-5. 説明・番号・記号・前置き・マークダウンは一切書かない
-6. 暴力・犯罪・死亡・宗教に関する内容は使わない
-7. 全部で{len(heads)}行だけ出力する"""
-
-    raw = _call_gemini(prompt, temperature=0.7, max_tokens=2048)
-    out = {}
-    for line in raw.split("\n"):
-        parts = [p.strip() for p in line.split("｜")]
-        if len(parts) != 3:
-            continue
-        head, jp, ko = parts
-        if not is_japanese(jp):
-            continue
-        for h in heads:
-            if head in h or h in head:
-                out[h] = (sanitize_text(jp), sanitize_text(ko))
-                break
-    _rlog(f"[예문] {len(out)}/{len(heads)}개 생성")
-    return out
-
-
-# ── PDF ───────────────────────────────────────────────
-class GrammarPDF(FPDF):
-    def __init__(self, font_path: str, title: str):
+class ReadingPDF(FPDF):
+    def __init__(self, font_path: str):
         super().__init__()
-        self.title_text = title
         self.add_font("JP", "", font_path)
         self.set_auto_page_break(auto=True, margin=18)
 
-    def header(self):
-        self.set_font("JP", size=9)
-        self.set_text_color(130, 130, 130)
-        self.cell(0, 8, self.title_text, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
-        self.set_text_color(0, 0, 0)
 
-    def footer(self):
-        self.set_y(-14)
-        self.set_font("JP", size=8)
-        self.set_text_color(150, 150, 150)
-        self.cell(0, 8, str(self.page_no()), align="C")
-
-
-def build_pdf(theme_label: str, levels: list, items: list, examples: dict, today) -> str:
+def build_pdf(today: datetime.date, level_tag: str, topic: str, passage: str) -> str:
     font_path = find_font()
-    header = f"{today:%Y-%m-%d} · {theme_label}"
-    pdf = GrammarPDF(font_path, header)
+    pdf = ReadingPDF(font_path)
     pdf.add_page()
-
-    pdf.set_font("JP", size=18)
-    pdf.multi_cell(0, 11, sanitize_text(theme_label), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.set_font("JP", size=10)
-    pdf.set_text_color(120, 120, 120)
-    pdf.multi_cell(0, 7, f"{today:%Y년 %m월 %d일} · 대상 레벨 JLPT {'·'.join(levels)}",
-                   new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(4)
-
-    for idx, (head, rows) in enumerate(items, 1):
-        pdf.set_font("JP", size=14)
-        pdf.multi_cell(0, 10, sanitize_text(f"{idx}. {head}"),
-                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.set_font("JP", size=11)
-        for label, value in rows:
-            pdf.set_text_color(110, 110, 110)
-            pdf.cell(38, 7, sanitize_text(label))
-            pdf.set_text_color(0, 0, 0)
-            pdf.multi_cell(0, 7, sanitize_text(value),
-                           new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        if head in examples:
-            jp, ko = examples[head]
-            pdf.ln(1)
-            pdf.set_text_color(40, 80, 160)
-            pdf.multi_cell(0, 7, sanitize_text(f"　例  {jp}"),
-                           new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            pdf.set_text_color(120, 120, 120)
-            pdf.multi_cell(0, 7, sanitize_text(f"　　  {ko}"),
-                           new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            pdf.set_text_color(0, 0, 0)
-        pdf.ln(5)
-
+    pdf.set_font("JP", size=11)
+    for line in header_lines(today, level_tag, topic):
+        pdf.multi_cell(0, 7, line, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(6)
+    pdf.set_font("JP", size=12)
+    pdf.multi_cell(0, 8.5, passage, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.output(OUTPUT_PDF)
     _rlog(f"[PDF] 생성 완료: {OUTPUT_PDF}")
     return OUTPUT_PDF
 
 
-# ── 메일 ──────────────────────────────────────────────
-def build_html(theme_label: str, levels: list, items: list, examples: dict, today) -> str:
-    blocks = []
-    for idx, (head, rows) in enumerate(items, 1):
-        lines = "".join(
-            f'<tr><td style="color:#888;padding:3px 12px 3px 0;white-space:nowrap;'
-            f'vertical-align:top">{label}</td><td style="padding:3px 0">{value}</td></tr>'
-            for label, value in rows
-        )
-        ex_html = ""
-        if head in examples:
-            jp, ko = examples[head]
-            ex_html = (
-                f'<div style="margin-top:10px;padding:10px 12px;background:#f5f7fb;'
-                f'border-left:3px solid #4a6fb5;border-radius:3px">'
-                f'<div style="font-size:15px">{jp}</div>'
-                f'<div style="color:#888;font-size:13px;margin-top:4px">{ko}</div></div>'
-            )
-        blocks.append(
-            f'<div style="margin-bottom:26px">'
-            f'<div style="font-size:17px;font-weight:600;margin-bottom:8px">{idx}. {head}</div>'
-            f'<table style="border-collapse:collapse;font-size:14px">{lines}</table>'
-            f'{ex_html}</div>'
-        )
+def build_html(today: datetime.date, level_tag: str, topic: str, passage: str) -> str:
+    head = "<br>".join(header_lines(today, level_tag, topic))
     return f"""<!DOCTYPE html><html><body style="margin:0;padding:24px;
 background:#fafafa;font-family:'Helvetica Neue',Arial,'Noto Sans JP',sans-serif;color:#222">
 <div style="max-width:640px;margin:0 auto;background:#fff;padding:32px;border-radius:6px">
-<div style="font-size:13px;color:#999">{today:%Y년 %m월 %d일}</div>
-<h1 style="font-size:22px;margin:6px 0 4px">{theme_label}</h1>
-<div style="font-size:13px;color:#999;margin-bottom:24px">
-대상 레벨 JLPT {'·'.join(levels)}</div>
-{''.join(blocks)}
-<div style="border-top:1px solid #eee;margin-top:8px;padding-top:14px;
-font-size:12px;color:#aaa">활용표는 규칙 기반으로 생성되며, 예문은 Gemini가 작성합니다.</div>
+<div style="font-size:13px;color:#999;line-height:1.7">{head}</div>
+<div style="margin-top:20px;font-size:16px;line-height:2">{passage}</div>
 </div></body></html>"""
 
 
-def send_mail(subject: str, html: str, pdf_path: str):
+def build_subject(today: datetime.date) -> str:
+    return f"日本語学習 読み物 · {today.isoformat()} ({WEEKDAY_EN[today.weekday()]})"
+
+
+# ── 메일 발송 ──────────────────────────────────────────
+def send_mail(subject: str, html: str, pdf_path: str) -> bool:
     if not GMAIL_ADDRESS or not GMAIL_APP_PW:
         _rlog("[메일] 인증 정보 없음 — 발송 생략")
-        return
+        return False
     if MANUAL_RUN and MANUAL_MAIL_TO:
         recipients = [MANUAL_MAIL_TO]
         _rlog(f"[메일] 수동 실행 — 수신자 고정: {MANUAL_MAIL_TO}")
@@ -396,7 +346,7 @@ def send_mail(subject: str, html: str, pdf_path: str):
         recipients = [r.strip() for r in EMAIL_RECIPIENTS.split(",") if r.strip()]
     if not recipients:
         _rlog("[메일] 수신자 없음 — 발송 생략")
-        return
+        return False
 
     msg = MIMEMultipart()
     msg["From"] = GMAIL_ADDRESS
@@ -410,34 +360,69 @@ def send_mail(subject: str, html: str, pdf_path: str):
             part.set_payload(f.read())
         encoders.encode_base64(part)
         part.add_header("Content-Disposition",
-                        f'attachment; filename="{os.path.basename(pdf_path)}"')
+                         f'attachment; filename="{os.path.basename(pdf_path)}"')
         msg.attach(part)
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(GMAIL_ADDRESS, GMAIL_APP_PW)
-        server.sendmail(GMAIL_ADDRESS, recipients, msg.as_string())
-    _rlog(f"[메일] 발송 완료 → {', '.join(recipients)}")
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_ADDRESS, GMAIL_APP_PW)
+            server.sendmail(GMAIL_ADDRESS, recipients, msg.as_string())
+        _rlog(f"[메일] 발송 완료 → {', '.join(recipients)}")
+        return True
+    except smtplib.SMTPException as e:
+        _rlog(f"[메일] 발송 실패: {e}")
+        return False
+
+
+# ── 이력 커밋 (성공한 경우에만 호출됨) ──────────────────
+def commit_history(today: datetime.date):
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        _rlog("[이력] 로컬 실행 — git 커밋 생략 (파일만 저장됨)")
+        return
+    try:
+        subprocess.run(["git", "config", "user.email", "actions@github.com"],
+                        check=True, cwd=BASE_DIR)
+        subprocess.run(["git", "config", "user.name", "github-actions[bot]"],
+                        check=True, cwd=BASE_DIR)
+        subprocess.run(["git", "add", HISTORY_FILE], check=True, cwd=BASE_DIR)
+        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=BASE_DIR)
+        if diff.returncode == 0:
+            _rlog("[이력] 변경 사항 없음 — 커밋 생략")
+            return
+        subprocess.run(["git", "commit", "-m", f"chore: update history ({today.isoformat()})"],
+                        check=True, cwd=BASE_DIR)
+        subprocess.run(["git", "push"], check=True, cwd=BASE_DIR)
+        _rlog("[이력] 커밋 및 푸시 완료")
+    except subprocess.CalledProcessError as e:
+        _rlog(f"[이력] 커밋 실패: {e}")
 
 
 # ── 실행 ──────────────────────────────────────────────
 def main():
     today = datetime.date.today()
-    theme_key, theme_label, levels = pick_theme(today)
+    category = pick_category(today)
+    history = load_history()
 
-    items = build_items(theme_key, levels)
-    _rlog(f"[항목] {len(items)}개: " + ", ".join(t for t, _ in items))
-
-    examples = make_examples(theme_label, items, levels)
+    topic, passage, patterns = generate_passage(category, history)
+    if not passage:
+        _rlog("[중단] 지문 생성 실패로 발송하지 않음")
+        return
 
     pdf_path = ""
     try:
-        pdf_path = build_pdf(theme_label, levels, items, examples, today)
+        pdf_path = build_pdf(today, category["level_tag"], topic, passage)
     except FileNotFoundError as e:
         _rlog(f"[PDF] 생략: {e}")
 
-    html = build_html(theme_label, levels, items, examples, today)
-    subject = f"[일본어 문법] {today:%m/%d} {theme_label}"
-    send_mail(subject, html, pdf_path)
+    html = build_html(today, category["level_tag"], topic, passage)
+    subject = build_subject(today)
+    sent = send_mail(subject, html, pdf_path)
+
+    if sent:
+        append_history(history, category["key"], patterns, today)
+        commit_history(today)
+    else:
+        _rlog("[이력] 발송 실패 — 이력 갱신하지 않음 (다음 실행에서 같은 후보 유지)")
 
 
 if __name__ == "__main__":
