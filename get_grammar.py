@@ -367,8 +367,8 @@ def send_mail(subject: str, html: str, pdf_path: str) -> bool:
             part = MIMEBase("application", "octet-stream")
             part.set_payload(f.read())
         encoders.encode_base64(part)
-        part.add_header("Content-Disposition",
-                         f'attachment; filename="{os.path.basename(pdf_path)}"')
+        part.add_header("Content-Disposition", "attachment",
+                         filename=os.path.basename(pdf_path))
         msg.attach(part)
 
     try:
