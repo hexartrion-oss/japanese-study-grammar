@@ -187,10 +187,16 @@ def _call_gemini(prompt: str, temperature: float) -> str:
 
 
 def build_prompt(patterns: list, level_tag: str) -> str:
-    pattern_list = "\n".join(f"- {p.id}" for p in patterns)
+    lines = []
+    for p in patterns:
+        if p.note:
+            lines.append(f"- {p.id} — 【注意】{p.note}")
+        else:
+            lines.append(f"- {p.id}")
+    pattern_list = "\n".join(lines)
     return f"""あなたは日本語で自然な読み物を書くライターです。対象レベルはJLPT {level_tag}です。
 
-【必ず使う文型】(必ず全部、それぞれ最低1回、自然な文脈で使うこと)
+【必ず使う文型】(必ず全部、それぞれ最低1回、自然な文脈で使うこと。【注意】が付いている文型は、その指示に厳密に従うこと)
 {pattern_list}
 
 【出力ルール — 絶対厳守】
@@ -198,7 +204,7 @@ def build_prompt(patterns: list, level_tag: str) -> str:
 2. 二行目は「---」だけ
 3. 三行目以降に、{SENTENCE_MIN}〜{SENTENCE_MAX}文程度の、一つのはっきりしたテーマを持つ自然な日本語の文章を書く
 4. 文章は一つのまとまった話として展開すること(起承転結や心情の変化があること)。バラバラな文を並べただけにしない
-5. 上に挙げた文型を全部、不自然にならない範囲で文章中に組み込む
+5. 上に挙げた文型を全部、不自然にならない範囲で文章中に組み込む。特に【注意】付きの文型は、指定された接続・文脈を外れると文法的に誤りになるため、必ず指示通りに使うこと
 6. 説明、翻訳、注釈、箇条書き、記号、マークダウンの装飾は一切書かない。読み物本文だけを書く
 7. 暴力・犯罪・死亡・宗教・政治的に偏った内容は避ける
 8. 見出しは内容だけを表すこと(文法カテゴリーが分かるような単語は使わない)"""
@@ -222,6 +228,7 @@ _KANJI_TO_KANA = {
     "事": "こと", "為": "ため", "通り": "とおり", "筈": "はず",
     "訳": "わけ", "様だ": "ようだ", "無い": "ない", "出来る": "できる",
     "有る": "ある", "頃": "ころ", "気味": "ぎみ",
+    "難くない": "かたくない", "堪えない": "たえない",
 }
 
 
@@ -229,6 +236,81 @@ def _normalize(text: str) -> str:
     for kanji, kana in _KANJI_TO_KANA.items():
         text = text.replace(kanji, kana)
     return text
+
+
+# ── 위험 문형 사후 구조 검증 ──────────────────────────────────
+# 89개 전수 점검(문형별 결합 제약 조사)에서 "문자열만 있으면 통과되는
+# 검증으로는 못 잡는" 오류가 나올 수 있다고 확인된 문형에 한해,
+# 문자열 등장 여부와 별개로 구조를 한 번 더 확인한다.
+# 나머지 문형(비교적 결합 범위가 넓은 것)은 build_prompt의 note 지침에만 의존한다.
+_NEG_RESULT_WORDS = ["ない", "できない", "わからない", "分からない"]
+_VARIATION_WORDS = ["分かれる", "異なる", "変わる", "決まる", "次第"]
+_HARDSHIP_WORDS = ["結局", "無駄", "失敗", "後悔", "苦労", "疲れ", "諦め", "破綻", "叱られ", "怒られ", "台無し"]
+
+
+def _window_after(text: str, term: str, span: int = 40) -> str:
+    idx = text.find(term)
+    if idx == -1:
+        return ""
+    return text[idx + len(term): idx + len(term) + span]
+
+
+def _window_before(text: str, term: str, span: int = 8) -> str:
+    idx = text.find(term)
+    if idx == -1:
+        return ""
+    return text[max(0, idx - span): idx]
+
+
+def _check_pair_negative(text: str, term: str) -> bool:
+    """〜ないことには, 〜なくしては: 뒤에 부정형 결론이 와야 짝이 완성됨."""
+    window = _window_after(text, term)
+    return any(w in window for w in _NEG_RESULT_WORDS)
+
+
+def _check_result_variation(text: str, term: str) -> bool:
+    """〜いかんによって: 뒤에 결과가 갈린다는 서술이 와야 함."""
+    window = _window_after(text, term)
+    return any(w in window for w in _VARIATION_WORDS)
+
+
+def _check_hardship_after(text: str, term: str) -> bool:
+    """〜あげく, 〜ばかりに: 뒤에 부정적 결과가 와야 함."""
+    window = _window_after(text, term)
+    return any(w in window for w in _HARDSHIP_WORDS)
+
+
+def _check_collocate_before(text: str, term: str, allowed: list) -> bool:
+    """〜にかたくない, 〜を禁じ得ない: 앞에 정해진 어휘군이 와야 함."""
+    before = _window_before(text, term)
+    return any(a in before for a in allowed)
+
+
+def _check_kirai_no_double_softening(text: str) -> bool:
+    """〜きらいがある: つつある/ている와 겹쳐 이중 완곡화되면 안 됨."""
+    idx = text.find("きらいがある")
+    if idx == -1:
+        return False
+    before = text[max(0, idx - 10): idx]
+    return "つつある" not in before
+
+
+# 문형 id → 검증 함수. 두 인자(text, term) 또는 (text)만 받는 함수를 통일해서 다룬다.
+_EXTRA_CHECKS = {
+    "ないことには": lambda t: _check_pair_negative(t, "ないことには"),
+    "なくしては": lambda t: _check_pair_negative(t, "なくしては"),
+    "いかんによって": lambda t: _check_result_variation(t, "いかんによって"),
+    "あげく": lambda t: _check_hardship_after(t, "あげく"),
+    "ばかりに": lambda t: _check_hardship_after(t, "ばかりに"),
+    "にかたくない": lambda t: (
+        _check_collocate_before(t, "にかたくない", ["想像", "推察", "察する", "理解"])
+        or _check_collocate_before(t, "に難くない", ["想像", "推察", "察する", "理解"])
+    ),
+    "を禁じ得ない": lambda t: _check_collocate_before(
+        t, "を禁じ得ない", ["涙", "怒り", "驚き", "失望", "感動", "悲しみ"]
+    ),
+    "きらいがある": lambda t: _check_kirai_no_double_softening(t),
+}
 
 
 def validate_passage(passage: str, patterns: list) -> bool:
@@ -242,6 +324,13 @@ def validate_passage(passage: str, patterns: list) -> bool:
     missing = [p.id for p in patterns if not p.found_in(normalized)]
     if missing:
         _rlog(f"[검증] 문형 누락: {', '.join(missing)}")
+        return False
+    structural_fail = [
+        p.id for p in patterns
+        if p.id in _EXTRA_CHECKS and not _EXTRA_CHECKS[p.id](normalized)
+    ]
+    if structural_fail:
+        _rlog(f"[검증] 구조 조건 미충족: {', '.join(structural_fail)}")
         return False
     return True
 
