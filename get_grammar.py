@@ -203,9 +203,9 @@ def build_prompt(patterns: list, level_tag: str) -> str:
 【出力ルール — 絶対厳守】
 1. まず一行目に、内容を表す短い見出しを日本語で書く(文型名や文法用語は絶対に書かない、あくまで話の題材を表す一言)
 2. 二行目は「---」だけ
-3. 三行目以降に、{SENTENCE_MIN}〜{SENTENCE_MAX}文程度の、一つのはっきりしたテーマを持つ自然な日本語の文章を書く
+3. 三行目以降の文章は、必ず{SENTENCE_MIN}文以上{SENTENCE_MAX}文以内(句点「。」の数で数える)にすること。これは絶対条件であり、1文でも超えたら失格とする。文型をすべて入れることよりもこの文数制限を優先せよ
 4. 文章は一つのまとまった話として展開すること(起承転結や心情の変化があること)。バラバラな文を並べただけにしない
-5. 上に挙げた文型を全部、不自然にならない範囲で文章中に組み込む。特に【注意】付きの文型は、指定された接続・文脈を外れると文法的に誤りになるため、必ず指示通りに使うこと
+5. 上に挙げた文型を全部、不自然にならない範囲で文章中に組み込む。ただし文数制限(ルール3)を破ってまで全部を無理に詰め込む必要はない。特に【注意】付きの文型は、指定された接続・文脈を外れると文法的に誤りになるため、必ず指示通りに使うこと
 6. 説明、翻訳、注釈、箇条書き、記号、マークダウンの装飾は一切書かない。読み物本文だけを書く
 7. 暴力・犯罪・死亡・宗教・政治的に偏った内容は避ける
 8. 見出しは内容だけを表すこと(文法カテゴリーが分かるような単語は使わない)"""
@@ -560,6 +560,33 @@ def send_mail(subject: str, html: str, pdf_path: str) -> bool:
         return False
 
 
+def notify_admin_failure(reason: str):
+    """지문 생성 실패 등으로 오늘 메일링을 못 보낸 경우, 운영자(발신 계정 본인)에게
+    실패 사실을 알린다. 이게 없으면 워크플로 로그를 직접 열어보지 않는 이상
+    실패가 조용히 묻힌다."""
+    if not GMAIL_ADDRESS or not GMAIL_APP_PW:
+        _rlog("[실패 알림] 인증 정보 없음 — 알림 생략")
+        return
+    today = datetime.date.today()
+    subject = f"[운영 알림] 표현독해 발송 실패 — {today.isoformat()}"
+    body = (
+        f"오늘({today.isoformat()}) 일본어 표현독해 메일링이 실패해서 발송되지 않았습니다.\n\n"
+        f"사유: {reason}\n\n"
+        f"자세한 내용은 GitHub Actions 실행 로그(run_log.txt)를 확인하세요."
+    )
+    try:
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["From"] = GMAIL_ADDRESS
+        msg["To"] = GMAIL_ADDRESS
+        msg["Subject"] = subject
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_ADDRESS, GMAIL_APP_PW)
+            server.sendmail(GMAIL_ADDRESS, [GMAIL_ADDRESS], msg.as_string())
+        _rlog(f"[실패 알림] 발송 완료 → {GMAIL_ADDRESS}")
+    except smtplib.SMTPException as e:
+        _rlog(f"[실패 알림] 발송 자체도 실패: {e}")
+
+
 # ── 이력 커밋 (성공한 경우에만 호출됨) ──────────────────
 def commit_history(today: datetime.date):
     if os.environ.get("GITHUB_ACTIONS") != "true":
@@ -584,7 +611,11 @@ def commit_history(today: datetime.date):
 
 
 # ── 실행 ──────────────────────────────────────────────
-def main():
+def main() -> bool:
+    """실행 성공 여부(bool)를 반환한다. 지문 생성 실패나 메일 발송 실패는
+    False를 반환해서, 호출부가 워크플로 실패로 표시할 수 있게 한다.
+    이전에는 실패해도 그냥 return만 해서 GitHub Actions가 '성공'으로
+    표시하는 바람에 발송 실패가 조용히 묻힌 적이 있었다."""
     today = datetime.date.today()
     category = pick_category(today)
     history = load_history()
@@ -592,7 +623,8 @@ def main():
     topic, passage, patterns = generate_passage(category, history)
     if not passage:
         _rlog("[중단] 지문 생성 실패로 발송하지 않음")
-        return
+        notify_admin_failure("지문 생성 4회 시도 전부 실패 (검증 조건 미충족)")
+        return False
 
     pdf_path = ""
     try:
@@ -607,9 +639,14 @@ def main():
     if sent:
         append_history(history, category["key"], patterns, today)
         commit_history(today)
-    else:
-        _rlog("[이력] 발송 실패 — 이력 갱신하지 않음 (다음 실행에서 같은 후보 유지)")
+        return True
+
+    _rlog("[이력] 발송 실패 — 이력 갱신하지 않음 (다음 실행에서 같은 후보 유지)")
+    notify_admin_failure("지문 생성은 성공했으나 메일 발송(SMTP) 단계에서 실패")
+    return False
 
 
 if __name__ == "__main__":
-    main()
+    if not main():
+        _rlog("[종료] 실패 처리 — 워크플로를 실패(빨간 X)로 표시하기 위해 exit(1)")
+        sys.exit(1)
