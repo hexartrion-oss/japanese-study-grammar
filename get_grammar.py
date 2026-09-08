@@ -203,8 +203,8 @@ def build_prompt(patterns: list, level_tag: str) -> str:
 【出力ルール — 絶対厳守】
 1. まず一行目に、内容を表す短い見出しを日本語で書く(文型名や文法用語は絶対に書かない、あくまで話の題材を表す一言)
 2. 二行目は「---」だけ
-3. 三行目以降の文章は、必ず{SENTENCE_MIN}文以上{SENTENCE_MAX}文以内(句点「。」の数で数える)にすること。これは絶対条件であり、1文でも超えたら失格とする。文型をすべて入れることよりもこの文数制限を優先せよ
-4. 文章は一つのまとまった話として展開すること(起承転結や心情の変化があること)。バラバラな文を並べただけにしない
+3. 三行目以降の文章は、必ず{SENTENCE_MIN}文以上{SENTENCE_MAX}文以内(句点「。」の数で数える)にすること。多すぎても少なすぎても絶対条件違反であり、失格とする。文型をすべて入れることよりもこの文数制限を優先せよ
+4. 文章は一つのまとまった話として展開すること(起承転結や心情の変化があること)。バラバラな文を並べただけにしない。ただし、心情や登場人物への評価が変化する場合は、その変化を自然に繋ぐ描写を必ず入れること(例: 批判的な描写から好意的な描写に移る場合、その心境の転換点を一文入れる)。前半と後半で書き手の評価や感情のトーンが理由なく矛盾しないよう、書き終えた後に一度全体を読み返して確認すること
 5. 上に挙げた文型を全部、不自然にならない範囲で文章中に組み込む。ただし文数制限(ルール3)を破ってまで全部を無理に詰め込む必要はない。特に【注意】付きの文型は、指定された接続・文脈を外れると文法的に誤りになるため、必ず指示通りに使うこと
 6. 説明、翻訳、注釈、箇条書き、記号、マークダウンの装飾は一切書かない。読み物本文だけを書く
 7. 暴力・犯罪・死亡・宗教・政治的に偏った内容は避ける
@@ -247,6 +247,10 @@ def _normalize(text: str) -> str:
 _NEG_RESULT_WORDS = ["ない", "できない", "わからない", "分からない"]
 _VARIATION_WORDS = ["分かれる", "異なる", "変わる", "決まる", "次第"]
 _HARDSHIP_WORDS = ["結局", "無駄", "失敗", "後悔", "苦労", "疲れ", "諦め", "破綻", "叱られ", "怒られ", "台無し"]
+_CRITICAL_TONE_WORDS = [
+    "文句", "批判", "生意気", "偉そう", "呆れ", "情けない", "許せない",
+    "腹が立", "不満", "非難", "責め", "説教", "困った", "困る",
+]
 
 
 def _window_after(text: str, term: str, span: int = 40) -> str:
@@ -279,6 +283,18 @@ def _check_hardship_after(text: str, term: str) -> bool:
     """〜あげく, 〜ばかりに: 뒤에 부정적 결과가 와야 함."""
     window = _window_after(text, term)
     return any(w in window for w in _HARDSHIP_WORDS)
+
+
+def _check_critical_tone(text: str, term: str) -> bool:
+    """〜くせに: 완벽한 의미 판단은 불가능하므로, 앞뒤에 비판적 어조 어휘가
+    최소한 하나라도 있는지만 느슨하게 확인한다. 통과해도 진짜 비판적 어조인지
+    보장 못 하며, 이 목록에 없는 단어로 비판했다면 놓칠 수 있다 — 최소한의
+    안전망일 뿐이다."""
+    idx = text.find(term)
+    if idx == -1:
+        return False
+    window = text[max(0, idx - 20): idx + len(term) + 30]
+    return any(w in window for w in _CRITICAL_TONE_WORDS)
 
 
 def _check_collocate_before(text: str, term: str, allowed: list) -> bool:
@@ -355,6 +371,7 @@ _EXTRA_CHECKS = {
     "いかんによって": lambda t: _check_result_variation(t, "いかんによって"),
     "あげく": lambda t: _check_hardship_after(t, "あげく"),
     "ばかりに": lambda t: _check_hardship_after(t, "ばかりに"),
+    "くせに": lambda t: _check_critical_tone(t, "くせに"),
     "にかたくない": lambda t: (
         _check_collocate_before(t, "にかたくない", ["想像", "推察", "察する", "理解"])
         or _check_collocate_before(t, "に難くない", ["想像", "推察", "察する", "理解"])
@@ -372,7 +389,7 @@ def validate_passage(passage: str, patterns: list) -> bool:
     if not passage:
         return False
     sentence_count = passage.count("。")
-    if not (SENTENCE_MIN - 2 <= sentence_count <= SENTENCE_MAX + 3):
+    if not (SENTENCE_MIN <= sentence_count <= SENTENCE_MAX):
         _rlog(f"[검증] 문장 수 {sentence_count}개 — 범위 벗어남")
         return False
     normalized = _normalize(passage)
