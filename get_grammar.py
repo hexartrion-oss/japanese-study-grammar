@@ -295,6 +295,53 @@ def _check_kirai_no_double_softening(text: str) -> bool:
     return "つつある" not in before
 
 
+# ── そうだ(伝聞) vs そうだ(様態) 구분 ─────────────────────
+# 둘은 표기가 똑같이 "そうだ"라서 문자열 매칭만으로는 절대 구분이 안 된다.
+# 실제 차이는 오직 そうだ 바로 앞 활용형에 있다:
+#   伝聞(전문, "~라고 한다") = 보통형(사전형/た형/ない형/だ)+そうだ   예: 降るそうだ, 降ったそうだ, 元気だそうだ
+#   様態(양태, "~일 것 같다") = 어간(ます형/형용사 어간)+そうだ      예: 降りそうだ, 元気そうだ, 忙しそうだ
+# 일본어 표기 관습상 동사 활용어미는 한자가 아니라 항상 히라가나로 쓰이므로
+# (食べる의 る, 食べ의 べ 등), そうだ 직전 한 글자만 봐도 대부분 구분이 가능하다.
+# 100% 정확하지는 않지만(예외적 표기가 있음), 기존의 "そうだ만 있으면 통과"보다는
+# 훨씬 정밀하다.
+_U_ROW = set("うくぐすつぬふぶむゆる")     # 사전형 어미(동사) → 伝聞
+_I_ROW = set("いきぎしじちぢにひびぴみり")  # ます형 어간(동사) → 様態
+
+
+def _classify_sou_da(text: str, idx: int) -> str:
+    """text[idx:idx+3]이 'そうだ'일 때, 그 직전 활용형을 보고 伝聞/様態를 판정한다."""
+    if idx == 0:
+        return "様態"
+    prev1 = text[idx - 1]
+    prev2 = text[idx - 2: idx]
+    if prev1 == "だ":
+        return "伝聞"          # 元気だ + そうだ (명사·な형용사의 보통형)
+    if prev2 == "ない":
+        return "伝聞"          # 降らない + そうだ (부정형 그대로)
+    if prev2 == "なさ":
+        return "様態"          # 降らなさそうだ (부정 어간 + さ, 양태 특수형)
+    if prev1 == "さ":
+        return "様態"          # よさそうだ (いい의 양태 특수형)
+    if prev1 == "た":
+        return "伝聞"          # 降った + そうだ (과거 보통형)
+    if prev1 == "な":
+        return "様態"          # 降らな + そうだ (부정 어간, さ 생략된 구어체)
+    if prev1 == "い":
+        return "伝聞"          # 忙しい + そうだ (い형용사 보통형, い 유지)
+    if prev1 in _U_ROW:
+        return "伝聞"          # 降る + そうだ (동사 사전형)
+    if prev1 in _I_ROW:
+        return "様態"          # 降り + そうだ (동사 ます형 어간)
+    return "様態"               # 元気 + そうだ (な형용사·명사 어간, だ 없이 바로 접속)
+
+
+def _check_sou_da(text: str, want: str) -> bool:
+    """지문 안의 모든 'そうだ' 등장 자리를 검사해, want(伝聞/様態)로 판정되는
+    자리가 하나라도 있으면 통과시킨다."""
+    positions = [m.start() for m in re.finditer("そうだ", text)]
+    return any(_classify_sou_da(text, idx) == want for idx in positions)
+
+
 # 문형 id → 검증 함수. 두 인자(text, term) 또는 (text)만 받는 함수를 통일해서 다룬다.
 _EXTRA_CHECKS = {
     "ないことには": lambda t: _check_pair_negative(t, "ないことには"),
@@ -310,6 +357,8 @@ _EXTRA_CHECKS = {
         t, "を禁じ得ない", ["涙", "怒り", "驚き", "失望", "感動", "悲しみ"]
     ),
     "きらいがある": lambda t: _check_kirai_no_double_softening(t),
+    "そうだ(伝聞)": lambda t: _check_sou_da(t, "伝聞"),
+    "そうだ(様態)": lambda t: _check_sou_da(t, "様態"),
 }
 
 
