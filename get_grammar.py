@@ -401,7 +401,7 @@ class ReadingPDF(FPDF):
         self.set_auto_page_break(auto=True, margin=18)
 
 
-def build_pdf(today: datetime.date, level_tag: str, topic: str, passage: str) -> str:
+def build_pdf(today: datetime.date, topic: str, passage: str) -> str:
     font_regular = find_font("")
     font_bold = find_font("B")
     pdf = ReadingPDF(font_regular, font_bold)
@@ -413,7 +413,7 @@ def build_pdf(today: datetime.date, level_tag: str, topic: str, passage: str) ->
     # 메인 타이틀 — 크게, 굵게, 중앙 정렬
     pdf.set_font("JP", "B", 20)
     pdf.set_text_color(20, 20, 20)
-    pdf.cell(page_w, 12, "日本語学習 読み物", align="C",
+    pdf.cell(page_w, 12, "日本語学習 表現読解", align="C",
              new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     # 날짜 줄 — 중앙 정렬, 회색
@@ -426,15 +426,7 @@ def build_pdf(today: datetime.date, level_tag: str, topic: str, passage: str) ->
     pdf.set_draw_color(210, 210, 210)
     y = pdf.get_y()
     pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
-    pdf.ln(6)
-
-    # 레벨 배지 — 옅은 파란 배경
-    pdf.set_fill_color(230, 241, 251)
-    pdf.set_text_color(20, 20, 20)
-    pdf.set_font("JP", "B", 12)
-    pdf.cell(page_w, 11, f"  [ {level_tag} ]", align="L", fill=True,
-              new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.ln(4)
+    pdf.ln(8)
 
     # 테마 — 옅은 회색
     pdf.set_font("JP", "", 11)
@@ -448,31 +440,29 @@ def build_pdf(today: datetime.date, level_tag: str, topic: str, passage: str) ->
     for sentence in split_sentences(passage):
         pdf.multi_cell(page_w, 8.5, sentence, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-    output_path = os.path.join(BASE_DIR, f"JPN_{today.isoformat()}_文法活用.pdf")
+    output_path = os.path.join(BASE_DIR, f"JPN_{today.isoformat()}_表現読解.pdf")
     pdf.output(output_path)
     _rlog(f"[PDF] 생성 완료: {output_path}")
     return output_path
 
 
-def build_html(today: datetime.date, level_tag: str, topic: str, passage: str) -> str:
+def build_html(today: datetime.date, topic: str, passage: str) -> str:
     week_no = today.isocalendar()[1]
     date_line = f"{today.isoformat()} ({WEEKDAY_EN[today.weekday()]}) | Week {week_no}"
     sentences_html = "<br><br>".join(split_sentences(passage))
     return f"""<!DOCTYPE html><html><body style="margin:0;padding:24px;
 background:#fafafa;font-family:'Helvetica Neue',Arial,'Noto Sans JP',sans-serif;color:#222">
 <div style="max-width:640px;margin:0 auto;background:#fff;padding:32px;border-radius:6px">
-<h1 style="text-align:center;font-size:22px;font-weight:700;margin:0 0 6px">日本語学習 読み物</h1>
+<h1 style="text-align:center;font-size:22px;font-weight:700;margin:0 0 6px">日本語学習 表現読解</h1>
 <div style="text-align:center;font-size:13px;color:#888;margin-bottom:16px">{date_line}</div>
 <hr style="border:none;border-top:1px solid #eee;margin:0 0 16px">
-<div style="background:#e6f1fb;padding:8px 14px;border-radius:4px;
-font-weight:700;font-size:14px;margin-bottom:14px">[ {level_tag} ]</div>
 <div style="font-size:13px;color:#999;margin-bottom:20px">テーマ: {topic}</div>
 <div style="font-size:16px;line-height:2">{sentences_html}</div>
 </div></body></html>"""
 
 
 def build_subject(today: datetime.date) -> str:
-    return f"日本語学習 読み物 · {today.isoformat()} ({WEEKDAY_EN[today.weekday()]})"
+    return f"日本語学習 表現読解 · {today.isoformat()} ({WEEKDAY_EN[today.weekday()]})"
 
 
 # ── 메일 발송 ──────────────────────────────────────────
@@ -551,11 +541,11 @@ def main():
 
     pdf_path = ""
     try:
-        pdf_path = build_pdf(today, category["level_tag"], topic, passage)
+        pdf_path = build_pdf(today, topic, passage)
     except FileNotFoundError as e:
         _rlog(f"[PDF] 생략: {e}")
 
-    html = build_html(today, category["level_tag"], topic, passage)
+    html = build_html(today, topic, passage)
     subject = build_subject(today)
     sent = send_mail(subject, html, pdf_path)
 
