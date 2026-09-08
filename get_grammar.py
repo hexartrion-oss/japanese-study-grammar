@@ -123,6 +123,13 @@ def recently_used(history: dict, category_key: str) -> set:
     return used
 
 
+# 뒷문장에 특정 결과(부정형 결론/나쁜 결과/갈리는 결과)가 반드시 와야 완성되는
+# 문형들. 이런 문형이 한 지문에 2개 이상 겹치면, 서로 다른 결말 구조를
+# 동시에 자연스럽게 짜야 해서 실패율이 올라간다(실제로 ないことには+ばかりに,
+# なくしては+いかんによって 조합에서 확인됨). 그래서 하루에 최대 1개만 뽑는다.
+_RESULT_FORCING_IDS = {"あげく", "ばかりに", "ないことには", "なくしては", "いかんによって"}
+
+
 def select_patterns(category: dict, history: dict, exclude_ids=None) -> list:
     exclude_ids = exclude_ids or set()
     used = recently_used(history, category["key"]) | exclude_ids
@@ -131,7 +138,22 @@ def select_patterns(category: dict, history: dict, exclude_ids=None) -> list:
     if len(candidates) < PATTERNS_PER_DAY:
         _rlog(f"[쿨다운] 후보 부족({len(candidates)}개) — 쿨다운 무시하고 전체 풀 사용")
         candidates = pool
-    picked = random.sample(candidates, min(PATTERNS_PER_DAY, len(candidates)))
+
+    constrained = [p for p in candidates if p.id in _RESULT_FORCING_IDS]
+    free = [p for p in candidates if p.id not in _RESULT_FORCING_IDS]
+
+    picked = []
+    if constrained:
+        picked.append(random.choice(constrained))
+    remaining = PATTERNS_PER_DAY - len(picked)
+    if len(free) >= remaining:
+        picked += random.sample(free, remaining)
+    else:
+        # free 풀이 부족한 예외적 경우 — constrained에서 마저 채움(모자란 만큼만)
+        picked += free
+        leftover = [p for p in constrained if p not in picked]
+        picked += random.sample(leftover, min(PATTERNS_PER_DAY - len(picked), len(leftover)))
+
     _rlog(f"[문형] 선택됨: {', '.join(p.id for p in picked)}")
     return picked
 
@@ -257,9 +279,12 @@ def _normalize(text: str) -> str:
 # 검증으로는 못 잡는" 오류가 나올 수 있다고 확인된 문형에 한해,
 # 문자열 등장 여부와 별개로 구조를 한 번 더 확인한다.
 # 나머지 문형(비교적 결합 범위가 넓은 것)은 build_prompt의 note 지침에만 의존한다.
-_NEG_RESULT_WORDS = ["ない", "できない", "わからない", "分からない"]
-_VARIATION_WORDS = ["分かれる", "異なる", "変わる", "決まる", "次第"]
-_HARDSHIP_WORDS = ["結局", "無駄", "失敗", "後悔", "苦労", "疲れ", "諦め", "破綻", "叱られ", "怒られ", "台無し"]
+_NEG_RESULT_WORDS = ["ない", "できない", "わからない", "分からない", "難しい", "無理", "不可能"]
+_VARIATION_WORDS = ["分かれる", "異なる", "変わる", "決まる", "次第", "左右され", "変動する"]
+_HARDSHIP_WORDS = [
+    "結局", "無駄", "失敗", "後悔", "苦労", "疲れ", "諦め", "破綻", "叱られ", "怒られ", "台無し",
+    "虚しい", "むなしい", "落胆", "報われ", "無意味", "徒労", "空回り", "骨折り損", "がっかり", "挫折",
+]
 _CRITICAL_TONE_WORDS = [
     "文句", "批判", "生意気", "偉そう", "呆れ", "情けない", "許せない",
     "腹が立", "不満", "非難", "責め", "説教", "困った", "困る",
@@ -281,20 +306,24 @@ def _window_before(text: str, term: str, span: int = 8) -> str:
 
 
 def _check_pair_negative(text: str, term: str) -> bool:
-    """〜ないことには, 〜なくしては: 뒤에 부정형 결론이 와야 짝이 완성됨."""
-    window = _window_after(text, term)
+    """〜ないことには, 〜なくしては: 뒤에 부정형 결론이 와야 짝이 완성됨.
+    ない/できない는 아주 흔한 단어라 창을 너무 넓히면 검증이 사실상 무의미해진다
+    (아무 문장에나 ない가 하나쯤 있기 마련이라). 그래서 다른 검증보다 창을 좁게 유지한다."""
+    window = _window_after(text, term, span=45)
     return any(w in window for w in _NEG_RESULT_WORDS)
 
 
 def _check_result_variation(text: str, term: str) -> bool:
     """〜いかんによって: 뒤에 결과가 갈린다는 서술이 와야 함."""
-    window = _window_after(text, term)
+    window = _window_after(text, term, span=60)
     return any(w in window for w in _VARIATION_WORDS)
 
 
 def _check_hardship_after(text: str, term: str) -> bool:
-    """〜あげく, 〜ばかりに: 뒤에 부정적 결과가 와야 함."""
-    window = _window_after(text, term)
+    """〜あげく, 〜ばかりに: 뒤에 부정적 결과가 와야 함. 결과 어휘가
+    상대적으로 특이한 단어들이라(ない처럼 아무 데나 나오지 않음), 창을
+    넓혀도 오탐 위험이 크지 않다고 판단해 다른 검증보다 넓게 잡는다."""
+    window = _window_after(text, term, span=70)
     return any(w in window for w in _HARDSHIP_WORDS)
 
 
