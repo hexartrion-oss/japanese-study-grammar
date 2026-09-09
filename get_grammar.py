@@ -427,31 +427,37 @@ _EXTRA_CHECKS = {
 }
 
 
-def validate_passage(passage: str, patterns: list) -> bool:
+def validate_passage(passage: str, patterns: list):
+    """(통과 여부, 실패 사유) 튜플을 반환한다. 실패 사유는 사람이 읽고 바로
+    원인을 알 수 있는 짧은 문자열로, 실패 알림 메일에 그대로 실린다."""
     if not passage:
-        return False
+        return False, "빈 지문(파싱 실패)"
     sentence_count = passage.count("。")
     if not (SENTENCE_MIN <= sentence_count <= SENTENCE_MAX):
-        _rlog(f"[검증] 문장 수 {sentence_count}개 — 범위 벗어남")
-        return False
+        reason = f"문장 수 {sentence_count}개 — 범위({SENTENCE_MIN}~{SENTENCE_MAX}) 벗어남"
+        _rlog(f"[검증] {reason}")
+        return False, reason
     normalized = _normalize(passage)
     missing = [p.id for p in patterns if not p.found_in(normalized)]
     if missing:
-        _rlog(f"[검증] 문형 누락: {', '.join(missing)}")
-        return False
+        reason = f"문형 누락: {', '.join(missing)}"
+        _rlog(f"[검증] {reason}")
+        return False, reason
     structural_fail = [
         p.id for p in patterns
         if p.id in _EXTRA_CHECKS and not _EXTRA_CHECKS[p.id](normalized)
     ]
     if structural_fail:
-        _rlog(f"[검증] 구조 조건 미충족: {', '.join(structural_fail)}")
-        return False
-    return True
+        reason = f"구조 조건 미충족: {', '.join(structural_fail)}"
+        _rlog(f"[검증] {reason}")
+        return False, reason
+    return True, ""
 
 
 def generate_passage(category: dict, history: dict):
     patterns = select_patterns(category, history)
     temperatures = [0.7, 0.6, 0.4, 0.2]
+    attempts_log = []  # 실패 알림 메일에 그대로 실릴 시도별 진단 정보
     for attempt in range(MAX_GEN_ATTEMPTS):
         if attempt == 2:
             # 두 번 실패하면 문형 조합 자체를 바꿔서 재시도
@@ -460,19 +466,28 @@ def generate_passage(category: dict, history: dict):
         prompt = build_prompt(patterns, category["level_tag"])
         raw = _call_gemini(prompt, temperatures[attempt])
         topic, passage = parse_gemini_output(raw)
-        if passage and validate_passage(passage, patterns):
+        ok, reason = validate_passage(passage, patterns) if passage else (False, "Gemini 출력 파싱 실패(--- 구분자 없음)")
+        if ok:
             _rlog(f"[생성] {attempt + 1}번째 시도에서 성공")
-            return topic or "日本語の読み物", passage, patterns
+            return topic or "日本語の読み物", passage, patterns, attempts_log
         # 실패 사유(문형 누락/구조 미충족/문장 수)는 validate_passage가 이미
         # 로그에 남기지만, 정작 원문이 없으면 "왜" 실패했는지 사후에 알 수 없다.
-        # 그래서 실패한 시도마다 원문 전체를 로그에 같이 남긴다.
+        # 그래서 실패한 시도마다 원문 전체를 로그에 같이 남기고, 실패 알림
+        # 메일에 그대로 실릴 수 있게 구조화된 형태로도 모아둔다.
+        snippet = passage if passage else raw
         if passage:
             _rlog(f"[생성] {attempt + 1}번째 시도 원문(검증 실패):\n{passage}")
         else:
             _rlog(f"[생성] {attempt + 1}번째 시도: Gemini 출력 파싱 실패. raw 응답:\n{raw!r}")
         _rlog(f"[생성] {attempt + 1}번째 시도 실패")
+        attempts_log.append({
+            "attempt": attempt + 1,
+            "patterns": [p.id for p in patterns],
+            "reason": reason,
+            "snippet": (snippet or "")[:300],
+        })
     _rlog("[생성] 전체 시도 실패 — 발송 중단")
-    return None, None, patterns
+    return None, None, patterns, attempts_log
 
 
 # ── PDF / 메일 템플릿 (japanese-study 원본 형식) ───────────
@@ -626,20 +641,37 @@ def send_mail(subject: str, html: str, pdf_path: str) -> bool:
         return False
 
 
-def notify_admin_failure(reason: str):
+def notify_admin_failure(reason: str, attempts_log: list = None):
     """지문 생성 실패 등으로 오늘 메일링을 못 보낸 경우, 운영자(발신 계정 본인)에게
     실패 사실을 알린다. 이게 없으면 워크플로 로그를 직접 열어보지 않는 이상
-    실패가 조용히 묻힌다."""
+    실패가 조용히 묻힌다.
+
+    attempts_log가 있으면(지문 생성 실패의 경우) 시도별 진단 정보(문형·사유·지문
+    일부)를 메일 본문에 그대로 담는다. 이러면 GitHub Actions 로그를 따로 열어보지
+    않고, 이 메일 내용만 그대로 옮겨서 진단을 요청할 수 있다."""
     if not GMAIL_ADDRESS or not GMAIL_APP_PW:
         _rlog("[실패 알림] 인증 정보 없음 — 알림 생략")
         return
     today = datetime.date.today()
     subject = f"[운영 알림] 표현독해 발송 실패 — {today.isoformat()}"
-    body = (
-        f"오늘({today.isoformat()}) 일본어 표현독해 메일링이 실패해서 발송되지 않았습니다.\n\n"
-        f"사유: {reason}\n\n"
-        f"자세한 내용은 GitHub Actions 실행 로그(run_log.txt)를 확인하세요."
-    )
+    lines = [
+        f"오늘({today.isoformat()}) 일본어 표현독해 메일링이 실패해서 발송되지 않았습니다.",
+        "",
+        f"사유: {reason}",
+        "",
+    ]
+    if attempts_log:
+        lines.append("=== 시도별 진단 ===")
+        for a in attempts_log:
+            lines.append(f"[{a['attempt']}차 시도]")
+            lines.append(f"  문형: {', '.join(a['patterns'])}")
+            lines.append(f"  실패 사유: {a['reason']}")
+            lines.append(f"  지문 일부: {a['snippet']}")
+            lines.append("")
+        lines.append("(이 내용을 그대로 복사해서 진단을 요청하면 됩니다)")
+    else:
+        lines.append("자세한 내용은 GitHub Actions 실행 로그(run_log.txt)를 확인하세요.")
+    body = "\n".join(lines)
     try:
         msg = MIMEText(body, "plain", "utf-8")
         msg["From"] = GMAIL_ADDRESS
@@ -686,10 +718,10 @@ def main() -> bool:
     category = pick_category(today)
     history = load_history()
 
-    topic, passage, patterns = generate_passage(category, history)
+    topic, passage, patterns, attempts_log = generate_passage(category, history)
     if not passage:
         _rlog("[중단] 지문 생성 실패로 발송하지 않음")
-        notify_admin_failure("지문 생성 4회 시도 전부 실패 (검증 조건 미충족)")
+        notify_admin_failure("지문 생성 4회 시도 전부 실패 (검증 조건 미충족)", attempts_log)
         return False
 
     pdf_path = ""
