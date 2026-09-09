@@ -293,3 +293,10 @@ Regular로 대체). 직접 지정하려면 `JAPANESE_FONT_PATH` / `JAPANESE_FONT
 5. 결합 범위가 좁거나 뒷문장과 짝을 이뤄야 하는 표현이면, 문자열 대신
    `("표현", "사용지침")` 튜플로 등록하고, 구조적으로 검증 가능하다면
    `get_grammar.py`의 `_EXTRA_CHECKS`에 검증 함수를 추가한다.
+
+## 유지보수 자동화
+
+이 리포지토리는 GitHub Fine-grained Personal Access Token(이 리포지토리 한정, Contents
+Read/Write 권한만, 짧은 만료기간)을 이용해 Claude가 GitHub API로 직접 커밋할 수 있도록
+설정되어 있다. 토큰은 대화 세션에만 임시로 존재하고 코드에는 포함되지 않는다. 토큰이
+만료되면 재발급 후 다시 전달하는 절차만 반복하면 된다.
