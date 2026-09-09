@@ -63,6 +63,7 @@ except ImportError:
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HISTORY_FILE = os.path.join(BASE_DIR, "used_history.json")
+FAILURE_HISTORY_FILE = os.path.join(BASE_DIR, "failure_history.json")
 RUN_LOG_FILE = os.path.join(BASE_DIR, "run_log.txt")
 
 MANUAL_RUN = os.environ.get("MANUAL_RUN") == "1"
@@ -72,6 +73,8 @@ COOLDOWN_RUNS = 3     # 같은 카테고리에서 최근 N회 안에 쓰인 문�
 PATTERNS_PER_DAY = 5  # 하루 지문에 쓰는 문형 개수
 SENTENCE_MIN, SENTENCE_MAX = 10, 15
 MAX_GEN_ATTEMPTS = 4
+FAILURE_REPEAT_WINDOW = 5    # 최근 N회 실행 중에서 반복 여부를 판단
+FAILURE_REPEAT_THRESHOLD = 3  # 그 안에서 이 횟수 이상 실패하면 "반복 경고"
 
 
 def _rlog(msg: str):
@@ -112,6 +115,55 @@ def load_history() -> dict:
     except (json.JSONDecodeError, OSError):
         _rlog("[이력] 파일 손상 또는 없음 — 새로 시작")
         return {"runs": []}
+
+
+# ── 실패 이력 (반복 실패 문형을 자동으로 감지하기 위한 별도 기록) ──────
+def load_failure_history() -> dict:
+    if not os.path.exists(FAILURE_HISTORY_FILE):
+        return {"runs": []}
+    try:
+        with open(FAILURE_HISTORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        _rlog("[실패이력] 파일 손상 또는 없음 — 새로 시작")
+        return {"runs": []}
+
+
+def append_failure_history(fail_history: dict, category_key: str,
+                            attempts_log: list, today: datetime.date):
+    """오늘 실패에서 등장한 (문형, 실패사유) 쌍을 전부 기록한다.
+    실패 안 한 날(발송 성공한 날)은 이 파일에 아무것도 안 남는다 —
+    "성공 여부"가 아니라 "실패가 있었는지"만 추적하는 파일이기 때문이다."""
+    entries = [
+        {"pattern": p, "reason": a["reason"]}
+        for a in attempts_log for p in a["patterns"]
+    ]
+    fail_history.setdefault("runs", []).append({
+        "date": today.isoformat(),
+        "category": category_key,
+        "failures": entries,
+    })
+    fail_history["runs"] = fail_history["runs"][-60:]
+    with open(FAILURE_HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(fail_history, f, ensure_ascii=False, indent=2)
+
+
+def find_repeat_offenders(fail_history: dict) -> list:
+    """최근 FAILURE_REPEAT_WINDOW회의 실패 기록 안에서, 특정 문형이
+    FAILURE_REPEAT_THRESHOLD회 이상 등장했으면 "반복 실패"로 판정한다.
+    문형이 실제로 실패에 관여했다는 것만 셀 뿐, 매번 같은 사유인지는
+    구분하지 않는다 — 사유가 달라도 그 문형이 계속 말썽이라는 신호는 유효하다."""
+    recent_runs = fail_history.get("runs", [])[-FAILURE_REPEAT_WINDOW:]
+    counts = {}
+    for run in recent_runs:
+        seen_today = set()
+        for f in run.get("failures", []):
+            pid = f["pattern"]
+            if pid in seen_today:
+                continue  # 같은 날 같은 문형은 한 번만 카운트(시도 4번 다 중복 집계 방지)
+            seen_today.add(pid)
+            counts[pid] = counts.get(pid, 0) + 1
+    return [pid for pid, c in counts.items() if c >= FAILURE_REPEAT_THRESHOLD]
 
 
 def recently_used(history: dict, category_key: str) -> set:
@@ -641,14 +693,17 @@ def send_mail(subject: str, html: str, pdf_path: str) -> bool:
         return False
 
 
-def notify_admin_failure(reason: str, attempts_log: list = None):
+def notify_admin_failure(reason: str, attempts_log: list = None, repeat_offenders: list = None):
     """지문 생성 실패 등으로 오늘 메일링을 못 보낸 경우, 운영자(발신 계정 본인)에게
     실패 사실을 알린다. 이게 없으면 워크플로 로그를 직접 열어보지 않는 이상
     실패가 조용히 묻힌다.
 
     attempts_log가 있으면(지문 생성 실패의 경우) 시도별 진단 정보(문형·사유·지문
     일부)를 메일 본문에 그대로 담는다. 이러면 GitHub Actions 로그를 따로 열어보지
-    않고, 이 메일 내용만 그대로 옮겨서 진단을 요청할 수 있다."""
+    않고, 이 메일 내용만 그대로 옮겨서 진단을 요청할 수 있다.
+
+    repeat_offenders가 있으면, 최근 며칠간 반복적으로 실패에 관여한 문형을
+    경고로 먼저 보여준다 — 오늘 실패가 우연인지 누적된 문제인지 바로 판단할 수 있다."""
     if not GMAIL_ADDRESS or not GMAIL_APP_PW:
         _rlog("[실패 알림] 인증 정보 없음 — 알림 생략")
         return
@@ -660,6 +715,13 @@ def notify_admin_failure(reason: str, attempts_log: list = None):
         f"사유: {reason}",
         "",
     ]
+    if repeat_offenders:
+        lines.append(
+            f"⚠ 반복 경고: {', '.join(repeat_offenders)}는(은) 최근 "
+            f"{FAILURE_REPEAT_WINDOW}회 실행 중 {FAILURE_REPEAT_THRESHOLD}회 이상 "
+            f"실패에 관여했습니다. 지침 보강이 필요할 수 있습니다."
+        )
+        lines.append("")
     if attempts_log:
         lines.append("=== 시도별 진단 ===")
         for a in attempts_log:
@@ -708,6 +770,31 @@ def commit_history(today: datetime.date):
         _rlog(f"[이력] 커밋 실패: {e}")
 
 
+def commit_failure_history(today: datetime.date):
+    """실패 이력은 성공 이력과 별도 파일이라 커밋도 별도로 한다.
+    발송이 실패한 날에만 호출되므로, commit_history(성공 시 호출)와
+    같은 실행에서 동시에 불릴 일은 없다."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        _rlog("[실패이력] 로컬 실행 — git 커밋 생략 (파일만 저장됨)")
+        return
+    try:
+        subprocess.run(["git", "config", "user.email", "actions@github.com"],
+                        check=True, cwd=BASE_DIR)
+        subprocess.run(["git", "config", "user.name", "github-actions[bot]"],
+                        check=True, cwd=BASE_DIR)
+        subprocess.run(["git", "add", FAILURE_HISTORY_FILE], check=True, cwd=BASE_DIR)
+        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=BASE_DIR)
+        if diff.returncode == 0:
+            _rlog("[실패이력] 변경 사항 없음 — 커밋 생략")
+            return
+        subprocess.run(["git", "commit", "-m", f"chore: update failure history ({today.isoformat()})"],
+                        check=True, cwd=BASE_DIR)
+        subprocess.run(["git", "push"], check=True, cwd=BASE_DIR)
+        _rlog("[실패이력] 커밋 및 푸시 완료")
+    except subprocess.CalledProcessError as e:
+        _rlog(f"[실패이력] 커밋 실패: {e}")
+
+
 # ── 실행 ──────────────────────────────────────────────
 def main() -> bool:
     """실행 성공 여부(bool)를 반환한다. 지문 생성 실패나 메일 발송 실패는
@@ -721,7 +808,17 @@ def main() -> bool:
     topic, passage, patterns, attempts_log = generate_passage(category, history)
     if not passage:
         _rlog("[중단] 지문 생성 실패로 발송하지 않음")
-        notify_admin_failure("지문 생성 4회 시도 전부 실패 (검증 조건 미충족)", attempts_log)
+        fail_history = load_failure_history()
+        repeat_offenders = find_repeat_offenders(fail_history)
+        if repeat_offenders:
+            _rlog(f"[실패이력] 반복 실패 문형 감지: {', '.join(repeat_offenders)}")
+        append_failure_history(fail_history, category["key"], attempts_log, today)
+        commit_failure_history(today)
+        notify_admin_failure(
+            "지문 생성 4회 시도 전부 실패 (검증 조건 미충족)",
+            attempts_log,
+            repeat_offenders,
+        )
         return False
 
     pdf_path = ""
