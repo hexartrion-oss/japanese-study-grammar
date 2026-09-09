@@ -463,6 +463,13 @@ def generate_passage(category: dict, history: dict):
         if passage and validate_passage(passage, patterns):
             _rlog(f"[생성] {attempt + 1}번째 시도에서 성공")
             return topic or "日本語の読み物", passage, patterns
+        # 실패 사유(문형 누락/구조 미충족/문장 수)는 validate_passage가 이미
+        # 로그에 남기지만, 정작 원문이 없으면 "왜" 실패했는지 사후에 알 수 없다.
+        # 그래서 실패한 시도마다 원문 전체를 로그에 같이 남긴다.
+        if passage:
+            _rlog(f"[생성] {attempt + 1}번째 시도 원문(검증 실패):\n{passage}")
+        else:
+            _rlog(f"[생성] {attempt + 1}번째 시도: Gemini 출력 파싱 실패. raw 응답:\n{raw!r}")
         _rlog(f"[생성] {attempt + 1}번째 시도 실패")
     _rlog("[생성] 전체 시도 실패 — 발송 중단")
     return None, None, patterns
