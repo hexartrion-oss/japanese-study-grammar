@@ -64,6 +64,7 @@ except ImportError:
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HISTORY_FILE = os.path.join(BASE_DIR, "used_history.json")
 FAILURE_HISTORY_FILE = os.path.join(BASE_DIR, "failure_history.json")
+SHADOW_REVIEW_FILE = os.path.join(BASE_DIR, "shadow_review.json")
 RUN_LOG_FILE = os.path.join(BASE_DIR, "run_log.txt")
 
 MANUAL_RUN = os.environ.get("MANUAL_RUN") == "1"
@@ -146,6 +147,37 @@ def append_failure_history(fail_history: dict, category_key: str,
     fail_history["runs"] = fail_history["runs"][-60:]
     with open(FAILURE_HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(fail_history, f, ensure_ascii=False, indent=2)
+
+
+# ── 그림자 비교 (코드 검증 vs LLM 판정 불일치 기록) ──────────────
+def load_shadow_review() -> dict:
+    if not os.path.exists(SHADOW_REVIEW_FILE):
+        return {"entries": []}
+    try:
+        with open(SHADOW_REVIEW_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        _rlog("[그림자비교] 파일 손상 또는 없음 — 새로 시작")
+        return {"entries": []}
+
+
+def append_shadow_review(review: dict, category_key: str, shadow_log: list, today: datetime.date):
+    """shadow_log에는 이미 code_ok != judge_ok인 항목만 들어 있다(일치하는
+    항목은 generate_passage()에서 아예 담지 않는다). human_label은 사람이
+    메일을 보고 채울 때까지 항상 null로 시작한다."""
+    for item in shadow_log:
+        review.setdefault("entries", []).append({
+            "date": today.isoformat(),
+            "category": category_key,
+            "pattern": item["pattern"],
+            "code_ok": item["code_ok"],
+            "judge_ok": item["judge_ok"],
+            "agree": False,
+            "snippet": item["snippet"],
+            "human_label": None,
+        })
+    with open(SHADOW_REVIEW_FILE, "w", encoding="utf-8") as f:
+        json.dump(review, f, ensure_ascii=False, indent=2)
 
 
 def find_repeat_offenders(fail_history: dict) -> list:
@@ -351,7 +383,7 @@ _VARIATION_WORDS = ["分かれる", "異なる", "変わる", "決まる", "次�
 _HARDSHIP_WORDS = [
     "結局", "無駄", "失敗", "後悔", "苦労", "疲れ", "諦め", "破綻", "叱られ", "怒られ", "台無し",
     "虚しい", "むなしい", "落胆", "報われ", "無意味", "徒労", "空回り", "骨折り損", "がっかり", "挫折",
-    "体調を崩す",
+    "体調を崩す", "落ち込む",
 ]
 _CRITICAL_TONE_WORDS = [
     "文句", "批判", "生意気", "偉そう", "呆れ", "情けない", "許せない",
@@ -591,10 +623,38 @@ def judge_naturalness(passage: str, patterns: list) -> dict:
     return parse_judge_output(raw, patterns)
 
 
+def check_extra_structural(passage: str, patterns: list) -> dict:
+    """_EXTRA_CHECKS 결과를 문형별로 {id: bool} 형태로 반환한다.
+    validate_passage()의 통과/실패 판정 로직은 건드리지 않고,
+    그림자 비교에 쓸 원시 결과만 별도로 뽑아낸다."""
+    normalized = _normalize(passage)
+    return {
+        p.id: _EXTRA_CHECKS[p.id](normalized)
+        for p in patterns
+        if p.id in _EXTRA_CHECKS
+    }
+
+
+def compare_judgments(code_results: dict, judge_result: dict) -> dict:
+    """code_results: {id: bool}, judge_result: {id: {"ok": bool, ...}}."""
+    comparison = {}
+    for pid, code_ok in code_results.items():
+        judge_ok = judge_result.get(pid, {}).get("ok")
+        if judge_ok is None:
+            continue
+        comparison[pid] = {
+            "code_ok": code_ok,
+            "judge_ok": judge_ok,
+            "agree": code_ok == judge_ok,
+        }
+    return comparison
+
+
 def generate_passage(category: dict, history: dict):
     patterns = select_patterns(category, history)
     temperatures = [0.7, 0.6, 0.4, 0.2]
     attempts_log = []  # 실패 알림 메일에 그대로 실릴 시도별 진단 정보
+    shadow_log = []     # 코드 검증 vs LLM 판정 불일치 기록 (발송 여부에 영향 없음)
     for attempt in range(MAX_GEN_ATTEMPTS):
         if attempt == 2:
             # 두 번 실패하면 문형 조합 자체를 바꿔서 재시도
@@ -605,17 +665,33 @@ def generate_passage(category: dict, history: dict):
         topic, passage = parse_gemini_output(raw)
         ok, reason = validate_passage(passage, patterns) if passage else (False, "Gemini 출력 파싱 실패(--- 구분자 없음)")
 
+        # 그림자 비교: validate_passage()의 통과/실패와 무관하게, 지문이 있으면
+        # 항상 판정과 코드 검증을 나란히 실행해 불일치를 기록한다(재시도 여부에는
+        # 영향 없음). 코드가 실격시킨 케이스에서 LLM이 어떻게 판단하는지가
+        # 이 비교의 핵심 데이터다.
         judgment = None
-        if ok:
+        if passage:
             judgment = judge_naturalness(passage, patterns)
-            failed = {pid: v for pid, v in judgment.items() if not v["ok"]}
+            code_results = check_extra_structural(passage, patterns)
+            comparison = compare_judgments(code_results, judgment)
+            for pid, c in comparison.items():
+                if not c["agree"]:
+                    shadow_log.append({
+                        "pattern": pid,
+                        "code_ok": c["code_ok"],
+                        "judge_ok": c["judge_ok"],
+                        "snippet": (passage or "")[:300],
+                    })
+
+        if ok:
+            failed = {pid: v for pid, v in judgment.items() if not v["ok"]} if judgment else {}
             if failed:
                 ok = False
                 reason = "자연스러움 판정 실패: " + ", ".join(failed.keys())
 
         if ok:
             _rlog(f"[생성] {attempt + 1}번째 시도에서 성공")
-            return topic or "日本語の読み物", passage, patterns, attempts_log
+            return topic or "日本語の読み物", passage, patterns, attempts_log, shadow_log
         # 실패 사유(문형 누락/구조 미충족/문장 수)는 validate_passage가 이미
         # 로그에 남기지만, 정작 원문이 없으면 "왜" 실패했는지 사후에 알 수 없다.
         # 그래서 실패한 시도마다 원문 전체를 로그에 같이 남기고, 실패 알림
@@ -634,7 +710,7 @@ def generate_passage(category: dict, history: dict):
             "judgment": judgment,   # 신규 필드. None이면 판정 단계 전에 실패한 것
         })
     _rlog("[생성] 전체 시도 실패 — 발송 중단")
-    return None, None, patterns, attempts_log
+    return None, None, patterns, attempts_log, shadow_log
 
 
 # ── PDF / 메일 템플릿 (japanese-study 원본 형식) ───────────
@@ -899,6 +975,74 @@ def commit_failure_history(today: datetime.date):
         _rlog(f"[실패이력] 커밋 실패: {e}")
 
 
+def commit_shadow_review(today: datetime.date):
+    """그림자 비교 기록은 발송 성공/실패와 무관하게 매 실행 후 커밋한다 —
+    불일치 사례는 발송 여부와 상관없이 관찰 데이터로서 가치가 있다."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        _rlog("[그림자비교] 로컬 실행 — git 커밋 생략 (파일만 저장됨)")
+        return
+    try:
+        subprocess.run(["git", "config", "user.email", "actions@github.com"],
+                        check=True, cwd=BASE_DIR)
+        subprocess.run(["git", "config", "user.name", "github-actions[bot]"],
+                        check=True, cwd=BASE_DIR)
+        subprocess.run(["git", "add", SHADOW_REVIEW_FILE], check=True, cwd=BASE_DIR)
+        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=BASE_DIR)
+        if diff.returncode == 0:
+            _rlog("[그림자비교] 변경 사항 없음 — 커밋 생략")
+            return
+        subprocess.run(["git", "commit", "-m", f"chore: update shadow review ({today.isoformat()})"],
+                        check=True, cwd=BASE_DIR)
+        subprocess.run(["git", "push"], check=True, cwd=BASE_DIR)
+        _rlog("[그림자비교] 커밋 및 푸시 완료")
+    except subprocess.CalledProcessError as e:
+        _rlog(f"[그림자비교] 커밋 실패: {e}")
+
+
+def send_weekly_shadow_report(review: dict, today: datetime.date):
+    """매주 월요일에, human_label이 아직 null인 지난 7일 불일치 사례를 모아
+    운영자에게 요약 메일을 보낸다. 라벨링(code_wrong/judge_wrong/ambiguous)은
+    사람이 이 메일을 보고 shadow_review.json을 직접 고치거나, 다음 claude.ai
+    대화에서 "이 리포트 라벨링해줘"로 위임하는 방식으로 처리한다."""
+    if today.weekday() != 0:
+        return
+    if not GMAIL_ADDRESS or not GMAIL_APP_PW:
+        _rlog("[주간리포트] 인증 정보 없음 — 발송 생략")
+        return
+    cutoff = today - datetime.timedelta(days=7)
+    pending = [
+        e for e in review.get("entries", [])
+        if e.get("human_label") is None
+        and datetime.date.fromisoformat(e["date"]) >= cutoff
+    ]
+    if not pending:
+        _rlog("[주간리포트] 지난주 미라벨링 불일치 없음 — 발송 생략")
+        return
+    subject = f"[운영 알림] 판정 불일치 주간 리뷰 — {today.isoformat()}"
+    lines = [
+        f"지난 7일간 코드 검증과 LLM 판정이 갈린 사례 {len(pending)}건입니다.",
+        "shadow_review.json에서 human_label을 \"code_wrong\"/\"judge_wrong\"/\"ambiguous\" 중 하나로 채워주세요.",
+        "",
+    ]
+    for e in pending:
+        lines.append(f"[{e['date']} · {e['category']} · {e['pattern']}]")
+        lines.append(f"  코드 판정: {'통과' if e['code_ok'] else '실격'} / LLM 판정: {'통과' if e['judge_ok'] else '실격'}")
+        lines.append(f"  지문 일부: {e['snippet']}")
+        lines.append("")
+    body = "\n".join(lines)
+    try:
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["From"] = GMAIL_ADDRESS
+        msg["To"] = GMAIL_ADDRESS
+        msg["Subject"] = subject
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_ADDRESS, GMAIL_APP_PW)
+            server.sendmail(GMAIL_ADDRESS, [GMAIL_ADDRESS], msg.as_string())
+        _rlog(f"[주간리포트] 발송 완료 → {GMAIL_ADDRESS} ({len(pending)}건)")
+    except smtplib.SMTPException as e:
+        _rlog(f"[주간리포트] 발송 실패: {e}")
+
+
 # ── 실행 ──────────────────────────────────────────────
 def main() -> bool:
     """실행 성공 여부(bool)를 반환한다. 지문 생성 실패나 메일 발송 실패는
@@ -909,7 +1053,14 @@ def main() -> bool:
     category = pick_category(today)
     history = load_history()
 
-    topic, passage, patterns, attempts_log = generate_passage(category, history)
+    topic, passage, patterns, attempts_log, shadow_log = generate_passage(category, history)
+
+    # 그림자 비교 기록은 발송 성공/실패와 무관하게 매 실행 후 저장·커밋한다.
+    shadow_review = load_shadow_review()
+    append_shadow_review(shadow_review, category["key"], shadow_log, today)
+    commit_shadow_review(today)
+    send_weekly_shadow_report(shadow_review, today)
+
     if not passage:
         _rlog("[중단] 지문 생성 실패로 발송하지 않음")
         fail_history = load_failure_history()
