@@ -603,6 +603,15 @@ def generate_passage(category: dict, history: dict):
         raw = _call_gemini(prompt, temperatures[attempt])
         topic, passage = parse_gemini_output(raw)
         ok, reason = validate_passage(passage, patterns) if passage else (False, "Gemini 출력 파싱 실패(--- 구분자 없음)")
+
+        judgment = None
+        if ok:
+            judgment = judge_naturalness(passage, patterns)
+            failed = {pid: v for pid, v in judgment.items() if not v["ok"]}
+            if failed:
+                ok = False
+                reason = "자연스러움 판정 실패: " + ", ".join(failed.keys())
+
         if ok:
             _rlog(f"[생성] {attempt + 1}번째 시도에서 성공")
             return topic or "日本語の読み物", passage, patterns, attempts_log
@@ -621,6 +630,7 @@ def generate_passage(category: dict, history: dict):
             "patterns": [p.id for p in patterns],
             "reason": reason,
             "snippet": (snippet or "")[:300],
+            "judgment": judgment,   # 신규 필드. None이면 판정 단계 전에 실패한 것
         })
     _rlog("[생성] 전체 시도 실패 — 발송 중단")
     return None, None, patterns, attempts_log
