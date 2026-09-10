@@ -187,7 +187,7 @@ def select_patterns(category: dict, history: dict, exclude_ids=None) -> list:
     used = recently_used(history, category["key"]) | exclude_ids
     pool = category["patterns"]
     candidates = [p for p in pool if p.id not in used]
-    if len(candidates) < PATTERNS_PER_DAY:
+    if len(candidates) < PATTERNS_PER_DAY + 2:
         _rlog(f"[쿨다운] 후보 부족({len(candidates)}개) — 쿨다운 무시하고 전체 풀 사용")
         candidates = pool
 
@@ -319,8 +319,23 @@ _KANJI_TO_KANA = {
     "難くない": "かたくない", "堪えない": "たえない",
 }
 
+# Gemini가 흔히 쓰는 한자 표기 이체자 보정 (挙げ句/揚げ句/挙句 등).
+_KANJI_VARIANT_TO_KANA = {
+    "挙げ句": "あげく", "揚げ句": "あげく", "挙句": "あげく",
+    "にも関わらず": "にもかかわらず", "にも拘らず": "にもかかわらず",
+    "に他ならない": "にほかならない",
+}
+
+# 故に → ゆえに 치환은 事故に/縁故に 같은 단어와 충돌하므로 정규식으로
+# 앞 글자를 제한한다. _KANJI_TO_KANA의 事→こと 치환이 먼저 적용되면
+# 이 룩비하인드가 무력화되므로 반드시 그보다 먼저 실행해야 한다.
+_YUENI_RE = re.compile(r"(?<![事縁物])(?<!こと)故に")
+
 
 def _normalize(text: str) -> str:
+    text = _YUENI_RE.sub("ゆえに", text)
+    for kanji, kana in _KANJI_VARIANT_TO_KANA.items():
+        text = text.replace(kanji, kana)
     for kanji, kana in _KANJI_TO_KANA.items():
         text = text.replace(kanji, kana)
     return text
@@ -832,8 +847,11 @@ def main() -> bool:
     sent = send_mail(subject, html, pdf_path)
 
     if sent:
-        append_history(history, category["key"], patterns, today)
-        commit_history(today)
+        if MANUAL_RUN:
+            _rlog("[이력] 수동 실행 — 이력 갱신 생략")
+        else:
+            append_history(history, category["key"], patterns, today)
+            commit_history(today)
         return True
 
     _rlog("[이력] 발송 실패 — 이력 갱신하지 않음 (다음 실행에서 같은 후보 유지)")
