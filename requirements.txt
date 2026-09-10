@@ -2,3 +2,4 @@ fpdf2>=2.7.9
 google-genai>=1.0.0
 python-dotenv>=1.0.0
 janome>=0.5.0
+tzdata>=2024.1
