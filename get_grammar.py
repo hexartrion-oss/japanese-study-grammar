@@ -187,7 +187,7 @@ def select_patterns(category: dict, history: dict, exclude_ids=None) -> list:
     used = recently_used(history, category["key"]) | exclude_ids
     pool = category["patterns"]
     candidates = [p for p in pool if p.id not in used]
-    if len(candidates) < PATTERNS_PER_DAY:
+    if len(candidates) < PATTERNS_PER_DAY + 2:
         _rlog(f"[쿨다운] 후보 부족({len(candidates)}개) — 쿨다운 무시하고 전체 풀 사용")
         candidates = pool
 
@@ -847,8 +847,11 @@ def main() -> bool:
     sent = send_mail(subject, html, pdf_path)
 
     if sent:
-        append_history(history, category["key"], patterns, today)
-        commit_history(today)
+        if MANUAL_RUN:
+            _rlog("[이력] 수동 실행 — 이력 갱신 생략")
+        else:
+            append_history(history, category["key"], patterns, today)
+            commit_history(today)
         return True
 
     _rlog("[이력] 발송 실패 — 이력 갱신하지 않음 (다음 실행에서 같은 후보 유지)")
