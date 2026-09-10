@@ -24,6 +24,7 @@ import random
 import smtplib
 import datetime
 import subprocess
+from zoneinfo import ZoneInfo
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
@@ -85,6 +86,14 @@ def _rlog(msg: str):
             f.write(str(msg) + "\n")
     except OSError:
         pass
+
+
+def _today_kst() -> datetime.date:
+    """카테고리 선택(pick_category)과 주간 리포트 요일 판정(send_weekly_shadow_report)은
+    독자가 메일을 받는 KST 기준 날짜여야 한다. GitHub Actions 러너는 기본 UTC라서
+    datetime.date.today()를 그대로 쓰면 워크플로가 실제로 도는 시점(cron "0 22 * * *"
+    = UTC 22:00 = KST 07:00 다음날)의 요일이 하루 밀린다."""
+    return datetime.datetime.now(ZoneInfo("Asia/Seoul")).date()
 
 
 # ── 카테고리 선정 ──────────────────────────────────────
@@ -878,7 +887,7 @@ def notify_admin_failure(reason: str, attempts_log: list = None, repeat_offender
     if not GMAIL_ADDRESS or not GMAIL_APP_PW:
         _rlog("[실패 알림] 인증 정보 없음 — 알림 생략")
         return
-    today = datetime.date.today()
+    today = _today_kst()
     subject = f"[운영 알림] 표현독해 발송 실패 — {today.isoformat()}"
     lines = [
         f"오늘({today.isoformat()}) 일본어 표현독해 메일링이 실패해서 발송되지 않았습니다.",
@@ -1049,7 +1058,7 @@ def main() -> bool:
     False를 반환해서, 호출부가 워크플로 실패로 표시할 수 있게 한다.
     이전에는 실패해도 그냥 return만 해서 GitHub Actions가 '성공'으로
     표시하는 바람에 발송 실패가 조용히 묻힌 적이 있었다."""
-    today = datetime.date.today()
+    today = _today_kst()
     category = pick_category(today)
     history = load_history()
 
