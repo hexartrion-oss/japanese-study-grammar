@@ -226,11 +226,11 @@ def append_history(history: dict, category_key: str, patterns: list, today: date
 _GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash"]
 
 
-def _call_gemini(prompt: str, temperature: float) -> str:
+def _call_gemini(prompt: str, temperature: float, model: str = None) -> str:
     if not GEMINI_AVAILABLE or not GEMINI_API_KEY:
         return ""
     client = google_genai.Client(api_key=GEMINI_API_KEY)
-    for model_id in _GEMINI_MODELS:
+    for model_id in ([model] if model else _GEMINI_MODELS):
         for attempt in range(2):
             try:
                 cfg = {"temperature": temperature, "max_output_tokens": 1500}
@@ -519,6 +519,75 @@ def validate_passage(passage: str, patterns: list):
         _rlog(f"[검증] {reason}")
         return False, reason
     return True, ""
+
+
+# ── 자연스러움 판정 (LLM 교차 검증) ───────────────────────────
+# validate_passage()는 문장 수·문형 존재 여부·일부 구조 제약(_EXTRA_CHECKS 11개)만
+# 본다. 89개 중 _EXTRA_CHECKS가 없는 78개는 규칙 기반 검증이 불가능하다고 이미
+# 판단된 것들이라, 생성과 다른 모델로 한 번 더 문법 오류 여부만 확인한다.
+_JUDGE_MODEL = "gemini-3.5-flash"  # 생성이 2.5-flash이므로 다른 모델로 교차 판정
+
+
+def build_judge_prompt(passage: str, patterns: list) -> str:
+    """생성에 쓴 문형 목록에 대해서만 개별로 '문법적으로 틀렸는가'를 묻는다.
+    '자연스러운가'를 묻지 않는다 — 그러면 어휘 선택 취향까지 반려 대상이 된다."""
+    lines = []
+    for p in patterns:
+        if p.note:
+            lines.append(f"- {p.id} — 사용 규칙: {p.note}")
+        else:
+            lines.append(f"- {p.id}")
+    pattern_list = "\n".join(lines)
+    return f"""次の日本語の文章の中で、以下の文型がそれぞれ「文法的に誤って」
+使われていないか確認してください。
+
+【確認対象の文型】
+{pattern_list}
+
+【判定基準 — 重要】
+- 「文法的に間違っている」場合のみ NG とすること
+  (例: 「あげく」の後にポジティブな結末が来ている、等)
+- 「文法的には正しいが、もっと自然な言い方がある」場合は NG にしない。
+  そのケースは note 欄に参考として書いてよいが、ok は true のままにする
+  (例: 「さえ」でも文法的には正しいが「まで」の方が自然、というのは NG ではない)
+- 迷った場合は NG にしない(過剰検出を避けるため)
+
+【出力形式 — 必ずこの通りに、他の文章は一切書かない】
+各文型について1行ずつ、次の形式で出力すること:
+文型名|true または false|理由(50字以内、問題なければ空欄可)
+
+【文章】
+{passage}"""
+
+
+def parse_judge_output(raw: str, patterns: list) -> dict:
+    """judge 출력을 {pattern_id: {"ok": bool, "note": str|None}} 형태로 파싱.
+    파싱 실패한 줄은 판정 불가로 보고 ok=True(관대한 쪽)로 처리한다 —
+    판정 단계 자체의 파싱 오류가 발송을 막아서는 안 된다."""
+    result = {p.id: {"ok": True, "note": None} for p in patterns}  # 기본값: 통과
+    for line in raw.strip().split("\n"):
+        parts = line.split("|")
+        if len(parts) < 2:
+            continue
+        pid = parts[0].strip()
+        if pid not in result:
+            continue
+        ok = parts[1].strip().lower() != "false"
+        note = parts[2].strip() if len(parts) > 2 and parts[2].strip() else None
+        result[pid] = {"ok": ok, "note": note}
+    return result
+
+
+def judge_naturalness(passage: str, patterns: list) -> dict:
+    """실패해도(호출 실패, 파싱 실패) 전부 ok=True를 반환해 발송을 막지 않는다.
+    판정은 방어선이지 필수 관문이 아니다 — 판정 자체의 장애가 서비스 전체를
+    멈추게 해서는 안 된다."""
+    prompt = build_judge_prompt(passage, patterns)
+    raw = _call_gemini(prompt, temperature=0.0, model=_JUDGE_MODEL)  # temperature 0: 판정은 일관성이 먼저
+    if not raw:
+        _rlog("[판정] 호출 실패 — 판정 생략하고 통과 처리")
+        return {p.id: {"ok": True, "note": "판정 호출 실패"} for p in patterns}
+    return parse_judge_output(raw, patterns)
 
 
 def generate_passage(category: dict, history: dict):
