@@ -823,6 +823,15 @@ def notify_admin_failure(reason: str, attempts_log: list = None, repeat_offender
             lines.append(f"[{a['attempt']}차 시도]")
             lines.append(f"  문형: {', '.join(a['patterns'])}")
             lines.append(f"  실패 사유: {a['reason']}")
+            judgment = a.get("judgment")
+            if judgment:
+                for pid, v in judgment.items():
+                    if not v["ok"]:
+                        detail = f": {v['note']}" if v["note"] else ""
+                        lines.append(f"  [판정-실격] {pid}{detail}  (판정 모델: {_JUDGE_MODEL})")
+                for pid, v in judgment.items():
+                    if v["ok"] and v["note"]:
+                        lines.append(f"  [판정-참고, 발송에는 영향 없음] {pid}: {v['note']}")
             lines.append(f"  지문 일부: {a['snippet']}")
             lines.append("")
         lines.append("(이 내용을 그대로 복사해서 진단을 요청하면 됩니다)")
