@@ -840,13 +840,23 @@ def build_subject(today: datetime.date) -> str:
 
 
 # ── 메일 발송 ──────────────────────────────────────────
+def _mask_email(addr: str) -> str:
+    """run_log.txt는 GitHub Actions 아티팩트로 매 실행마다 올라가고 이 리포는
+    public이라, 로그에 실제 이메일을 그대로 남기면 그때마다 노출된다."""
+    if "@" not in addr:
+        return "***"
+    local, _, domain = addr.partition("@")
+    masked = local[0] + "*" * max(len(local) - 2, 1) + (local[-1] if len(local) > 2 else "")
+    return f"{masked}@{domain}"
+
+
 def send_mail(subject: str, html: str, pdf_path: str) -> bool:
     if not GMAIL_ADDRESS or not GMAIL_APP_PW:
         _rlog("[메일] 인증 정보 없음 — 발송 생략")
         return False
     if MANUAL_RUN and MANUAL_MAIL_TO:
         recipients = [MANUAL_MAIL_TO]
-        _rlog(f"[메일] 수동 실행 — 수신자 고정: {MANUAL_MAIL_TO}")
+        _rlog(f"[메일] 수동 실행 — 수신자 고정: {_mask_email(MANUAL_MAIL_TO)}")
     else:
         recipients = [r.strip() for r in EMAIL_RECIPIENTS.split(",") if r.strip()]
     if not recipients:
@@ -872,7 +882,7 @@ def send_mail(subject: str, html: str, pdf_path: str) -> bool:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(GMAIL_ADDRESS, GMAIL_APP_PW)
             server.sendmail(GMAIL_ADDRESS, recipients, msg.as_string())
-        _rlog(f"[메일] 발송 완료 → {', '.join(recipients)}")
+        _rlog(f"[메일] 발송 완료 → {', '.join(_mask_email(r) for r in recipients)}")
         return True
     except smtplib.SMTPException as e:
         _rlog(f"[메일] 발송 실패: {e}")
@@ -937,7 +947,7 @@ def notify_admin_failure(reason: str, attempts_log: list = None, repeat_offender
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(GMAIL_ADDRESS, GMAIL_APP_PW)
             server.sendmail(GMAIL_ADDRESS, [GMAIL_ADDRESS], msg.as_string())
-        _rlog(f"[실패 알림] 발송 완료 → {GMAIL_ADDRESS}")
+        _rlog(f"[실패 알림] 발송 완료 → {_mask_email(GMAIL_ADDRESS)}")
     except smtplib.SMTPException as e:
         _rlog(f"[실패 알림] 발송 자체도 실패: {e}")
 
@@ -1053,7 +1063,7 @@ def send_weekly_shadow_report(review: dict, today: datetime.date):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(GMAIL_ADDRESS, GMAIL_APP_PW)
             server.sendmail(GMAIL_ADDRESS, [GMAIL_ADDRESS], msg.as_string())
-        _rlog(f"[주간리포트] 발송 완료 → {GMAIL_ADDRESS} ({len(pending)}건)")
+        _rlog(f"[주간리포트] 발송 완료 → {_mask_email(GMAIL_ADDRESS)} ({len(pending)}건)")
     except smtplib.SMTPException as e:
         _rlog(f"[주간리포트] 발송 실패: {e}")
 
