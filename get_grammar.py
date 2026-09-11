@@ -274,7 +274,7 @@ def _call_gemini(prompt: str, temperature: float, model: str = None) -> str:
     for model_id in ([model] if model else _GEMINI_MODELS):
         for attempt in range(2):
             try:
-                cfg = {"temperature": temperature, "max_output_tokens": 1500}
+                cfg = {"temperature": temperature, "max_output_tokens": 2200}
                 if "2.5" in model_id:
                     cfg["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=0)
                 res = client.models.generate_content(
@@ -541,6 +541,9 @@ def validate_passage(passage: str, patterns: list):
     원인을 알 수 있는 짧은 문자열로, 실패 알림 메일에 그대로 실린다."""
     if not passage:
         return False, "빈 지문(파싱 실패)"
+    stripped = passage.rstrip()
+    if not stripped.endswith("。"):
+        return False, "생성 중간에 잘림(마지막 문장이 완성되지 않음)"
     sentence_count = passage.count("。")
     if not (SENTENCE_MIN <= sentence_count <= SENTENCE_MAX):
         reason = f"문장 수 {sentence_count}개 — 범위({SENTENCE_MIN}~{SENTENCE_MAX}) 벗어남"
