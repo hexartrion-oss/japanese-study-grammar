@@ -2,8 +2,8 @@ name: Daily Japanese Reading Mail
 
 on:
   schedule:
-    # 매일 07:00 KST (UTC 22:00 전날)
-    - cron: "0 22 * * *"
+    # 매일 20:00 KST (UTC 11:00, 같은 날짜)
+    - cron: "0 11 * * *"
   workflow_dispatch:
     inputs:
       category:

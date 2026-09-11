@@ -90,9 +90,12 @@ def _rlog(msg: str):
 
 def _today_kst() -> datetime.date:
     """카테고리 선택(pick_category)과 주간 리포트 요일 판정(send_weekly_shadow_report)은
-    독자가 메일을 받는 KST 기준 날짜여야 한다. GitHub Actions 러너는 기본 UTC라서
-    datetime.date.today()를 그대로 쓰면 워크플로가 실제로 도는 시점(cron "0 22 * * *"
-    = UTC 22:00 = KST 07:00 다음날)의 요일이 하루 밀린다."""
+    독자가 메일을 받는 KST 기준 날짜여야 한다. GitHub Actions 러너는 기본 UTC이므로
+    datetime.date.today()에 기대지 않고 명시적으로 KST로 변환한다. 현재 cron
+    "0 11 * * *"(UTC 11:00 = KST 20:00, 같은 날짜)은 날짜가 안 바뀌어 datetime.date.today()도
+    우연히 맞겠지만, workflow_dispatch 등 다른 시각에 실행될 때도 항상 정확하도록
+    이 함수를 거친다(과거 cron이 자정을 넘기는 시각이었을 때 요일이 하루 밀렸던
+    적이 있다)."""
     return datetime.datetime.now(ZoneInfo("Asia/Seoul")).date()
 
 
