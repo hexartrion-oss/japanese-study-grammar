@@ -73,7 +73,7 @@ MANUAL_MAIL_TO = os.environ.get("MANUAL_MAIL_TO", "")
 
 COOLDOWN_RUNS = 3     # 같은 카테고리에서 최근 N회 안에 쓰인 문형은 제외
 PATTERNS_PER_DAY = 5  # 하루 지문에 쓰는 문형 개수
-SENTENCE_MIN, SENTENCE_MAX = 10, 15
+SENTENCE_MIN, SENTENCE_MAX = 10, 20
 MAX_GEN_ATTEMPTS = 4
 FAILURE_REPEAT_WINDOW = 5    # 최근 N회 실행 중에서 반복 여부를 판단
 FAILURE_REPEAT_THRESHOLD = 3  # 그 안에서 이 횟수 이상 실패하면 "반복 경고"
@@ -274,7 +274,7 @@ def _call_gemini(prompt: str, temperature: float, model: str = None) -> str:
     for model_id in ([model] if model else _GEMINI_MODELS):
         for attempt in range(2):
             try:
-                cfg = {"temperature": temperature, "max_output_tokens": 1500}
+                cfg = {"temperature": temperature, "max_output_tokens": 2200}
                 if "2.5" in model_id:
                     cfg["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=0)
                 res = client.models.generate_content(
@@ -541,6 +541,9 @@ def validate_passage(passage: str, patterns: list):
     원인을 알 수 있는 짧은 문자열로, 실패 알림 메일에 그대로 실린다."""
     if not passage:
         return False, "빈 지문(파싱 실패)"
+    stripped = passage.rstrip()
+    if not stripped.endswith("。"):
+        return False, "생성 중간에 잘림(마지막 문장이 완성되지 않음)"
     sentence_count = passage.count("。")
     if not (SENTENCE_MIN <= sentence_count <= SENTENCE_MAX):
         reason = f"문장 수 {sentence_count}개 — 범위({SENTENCE_MIN}~{SENTENCE_MAX}) 벗어남"
