@@ -375,6 +375,14 @@ _KANJI_VARIANT_TO_KANA = {
 # 이 룩비하인드가 무력화되므로 반드시 그보다 먼저 실행해야 한다.
 _YUENI_RE = re.compile(r"(?<![事縁物])(?<!こと)故に")
 
+# 문형 id는 사전형(〜てしまう)으로 등록되어 있는데, 지문은 거의 항상 이야기체
+# 과거 서술이라 실제로는 활용형(てしまった·てしまわない·でしまった 등)으로 등장한다.
+# 리터럴 매칭만 하면 정상적으로 쓴 문형을 "누락"으로 오판한다
+# (2026-09-13 「投げ出してしまわないか」가 4회 시도 전부 실패의 원인이 됨).
+# 검증용 텍스트에만 쓰이므로 「てしまわない」→「てしまうない」처럼 뒤가 조금
+# 어색해져도 무방하다 — 필요한 건 사전형 리터럴의 존재 여부뿐이다.
+_TESHIMAU_RE = re.compile(r"[てで]しま(?:った|って|う|わ|い|え|お)")
+
 
 def _normalize(text: str) -> str:
     text = _YUENI_RE.sub("ゆえに", text)
@@ -382,6 +390,7 @@ def _normalize(text: str) -> str:
         text = text.replace(kanji, kana)
     for kanji, kana in _KANJI_TO_KANA.items():
         text = text.replace(kanji, kana)
+    text = _TESHIMAU_RE.sub("てしまう", text)
     return text
 
 
@@ -672,9 +681,13 @@ def generate_passage(category: dict, history: dict):
     shadow_log = []     # 코드 검증 vs LLM 판정 불일치 기록 (발송 여부에 영향 없음)
     for attempt in range(MAX_GEN_ATTEMPTS):
         if attempt == 2:
-            # 두 번 실패하면 문형 조합 자체를 바꿔서 재시도
+            # 두 번 실패하면 문형 조합 자체를 바꿔서 재시도. 직전 조합을
+            # exclude_ids로 넘기지 않으면 실패 원인 문형이 그대로 다시 뽑혀
+            # 남은 시도까지 같은 지뢰를 밟는다(2026-09-13 かえって〜てしまう가
+            # 재선정 후에도 유임되어 4회 전부 실패).
             _rlog("[재시도] 문형 조합 교체")
-            patterns = select_patterns(category, history)
+            patterns = select_patterns(category, history,
+                                       exclude_ids={p.id for p in patterns})
         prompt = build_prompt(patterns, category["level_tag"])
         raw = _call_gemini(prompt, temperatures[attempt])
         topic, passage = parse_gemini_output(raw)
