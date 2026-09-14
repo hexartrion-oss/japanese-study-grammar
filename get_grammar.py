@@ -92,7 +92,7 @@ def _today_kst() -> datetime.date:
     """카테고리 선택(pick_category)과 주간 리포트 요일 판정(send_weekly_shadow_report)은
     독자가 메일을 받는 KST 기준 날짜여야 한다. GitHub Actions 러너는 기본 UTC이므로
     datetime.date.today()에 기대지 않고 명시적으로 KST로 변환한다. 현재 cron
-    "0 11 * * *"(UTC 11:00 = KST 20:00, 같은 날짜)은 날짜가 안 바뀌어 datetime.date.today()도
+    "0 11 * * 1-5"(UTC 11:00 = KST 20:00, 같은 날짜)은 날짜가 안 바뀌어 datetime.date.today()도
     우연히 맞겠지만, workflow_dispatch 등 다른 시각에 실행될 때도 항상 정확하도록
     이 함수를 거친다(과거 cron이 자정을 넘기는 시각이었을 때 요일이 하루 밀렸던
     적이 있다)."""
@@ -110,7 +110,9 @@ def pick_category(today: datetime.date) -> dict:
     weekday = today.weekday()
     cat = GB.CATEGORY_BY_WEEKDAY.get(weekday)
     if cat is None:
-        # 주말 등 정의 안 된 요일 — 안전하게 월요일 카테고리로 대체
+        # 순환표는 월~금만 정의한다(주 5일 발송). 여기 도달하는 건 수동 실행뿐이며
+        # (자동 실행은 main()의 주말 가드에서 이미 중단된다) 그때는 월요일
+        # 카테고리로 대체해 수동 발송 길을 막지 않는다.
         cat = GB.CATEGORY_BY_WEEKDAY[0]
         _rlog(f"[카테고리] {today} 은 순환표에 없는 요일 — 기본값으로 대체: {cat['key']}")
     else:
@@ -1088,6 +1090,15 @@ def main() -> bool:
     이전에는 실패해도 그냥 return만 해서 GitHub Actions가 '성공'으로
     표시하는 바람에 발송 실패가 조용히 묻힌 적이 있었다."""
     today = _today_kst()
+
+    # 주 5일(월~금) 발송. cron을 "0 11 * * 1-5"로 한정했지만 그것만으로는
+    # workflow_dispatch로 주말에 돌렸을 때를 막지 못하고, cron 요일 필드가
+    # 다시 넓어지면 조용히 주말 발송이 부활한다. 그래서 코드에도 가드를 둔다.
+    # 수동 실행은 의도적으로 통과시킨다(주말에 한 편 더 받고 싶을 수 있다).
+    if today.weekday() >= 5 and not MANUAL_RUN:
+        _rlog(f"[중단] {today} 은 주말 — 주 5일 발송 정책에 따라 실행하지 않음")
+        return True
+
     category = pick_category(today)
     history = load_history()
 
