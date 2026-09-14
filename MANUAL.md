@@ -155,7 +155,7 @@
 - **`main()`/`notify_admin_failure()`에서 `datetime.date.today()`를 직접 쓰지
   않는다** — 반드시 `_today_kst()`를 거친다. GitHub Actions 러너는 UTC라서 직접
   쓰면 실행 시각에 따라 요일이 하루 밀릴 수 있다(예전 cron `0 22 * * *` = UTC 22:00
-  = KST 07:00 다음날일 때 실제로 겪은 문제). 현재 cron(`0 11 * * *` = KST 20:00,
+  = KST 07:00 다음날일 때 실제로 겪은 문제). 현재 cron(`0 11 * * 1-5` = 평일 KST 20:00,
   같은 날짜)은 날짜가 안 바뀌어 덜 민감하지만, `workflow_dispatch` 등 다른 시각
   실행까지 항상 정확하려면 이 함수를 계속 거쳐야 한다.
 
