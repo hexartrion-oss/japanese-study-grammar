@@ -89,14 +89,34 @@ def _rlog(msg: str):
 
 
 def _today_kst() -> datetime.date:
-    """카테고리 선택(pick_category)과 주간 리포트 요일 판정(send_weekly_shadow_report)은
-    독자가 메일을 받는 KST 기준 날짜여야 한다. GitHub Actions 러너는 기본 UTC이므로
-    datetime.date.today()에 기대지 않고 명시적으로 KST로 변환한다. 현재 cron
-    "0 11 * * 1-5"(UTC 11:00 = KST 20:00, 같은 날짜)은 날짜가 안 바뀌어 datetime.date.today()도
-    우연히 맞겠지만, workflow_dispatch 등 다른 시각에 실행될 때도 항상 정확하도록
-    이 함수를 거친다(과거 cron이 자정을 넘기는 시각이었을 때 요일이 하루 밀렸던
-    적이 있다)."""
+    """실행 시각의 KST 날짜. 수동 실행의 회차 날짜로만 쓴다 — 정규 실행은
+    _send_date()를 거쳐야 한다(이유는 그쪽 주석 참고)."""
     return datetime.datetime.now(ZoneInfo("Asia/Seoul")).date()
+
+
+def _send_date() -> datetime.date:
+    """이 실행이 담당하는 '발송 회차'의 날짜. 카테고리 선택(pick_category),
+    주말 가드, 주간 리포트 요일 판정(send_weekly_shadow_report), 이력 기록이
+    모두 이 날짜를 기준으로 한다.
+
+    정규 실행은 cron "0 11 * * 1-5"(UTC 11:00)로 예약되지만 GitHub은 부하에
+    따라 예약 실행을 몇 시간씩 미룬다 — 이 저장소 실측으로 2시간52분~5시간41분.
+    실행 시각의 KST 벽시계로 날짜를 잡으면 지연이 KST 자정을 넘기는 순간
+    회차가 통째로 다음 날로 밀린다. 2026-09-14(월) 회차가 5시간41분 밀려
+    화요일 '인용'으로 나갔고, 월요일에만 도는 주간 리포트도 발동하지 않았다.
+    금요일에 같은 일이 생기면 토요일로 밀려 주말 가드에 걸리고, 그날 발송은
+    조용히 사라진다.
+
+    UTC 날짜는 예정 시각이 11:00 UTC이므로 13시간까지 지연돼도 예정 날짜와
+    같다(11:00 + 13:00 = 다음 날 00:00 UTC). 관측된 최대 지연의 두 배 이상
+    여유가 있으므로 정규 실행은 UTC 날짜를 기준으로 삼는다.
+
+    수동 실행(workflow_dispatch)은 예약이 아니라 사람이 누른 시각 자체가
+    의도이므로 KST 날짜를 그대로 쓴다. 여기에 UTC 날짜를 쓰면 KST 09:00 이전
+    실행에서 오히려 전날로 어긋난다."""
+    if MANUAL_RUN:
+        return _today_kst()
+    return datetime.datetime.now(datetime.timezone.utc).date()
 
 
 # ── 카테고리 선정 ──────────────────────────────────────
@@ -234,8 +254,21 @@ def select_patterns(category: dict, history: dict, exclude_ids=None) -> list:
     pool = category["patterns"]
     candidates = [p for p in pool if p.id not in used]
     if len(candidates) < PATTERNS_PER_DAY + 2:
-        _rlog(f"[쿨다운] 후보 부족({len(candidates)}개) — 쿨다운 무시하고 전체 풀 사용")
-        candidates = pool
+        # 쿨다운은 풀어도 exclude_ids는 유지한다. 여기서 pool 전체로 되돌리면
+        # 직전 시도를 죽인 조합이 그대로 다시 뽑힌다 — 재시도 상황은 정의상
+        # 후보가 얇아진 상태라 이 우회가 반드시 발동하고, 결국 재선정이 가장
+        # 필요한 순간에만 골라서 무력화된다(2026-09-15 인용 회차에서 재선정
+        # 조합이 직전과 3/5 겹쳐 そうだ(様態)가 유임, 2·3차 연속 실패).
+        relaxed = [p for p in pool if p.id not in exclude_ids]
+        if len(relaxed) < PATTERNS_PER_DAY:
+            # exclude_ids까지 빼면 5개를 못 채우는 극단적 경우에만 전체 풀로.
+            _rlog(f"[쿨다운] 후보 부족({len(candidates)}개) — 직전 조합 제외로도"
+                  f" 부족({len(relaxed)}개), 전체 풀 사용")
+            relaxed = pool
+        else:
+            _rlog(f"[쿨다운] 후보 부족({len(candidates)}개) — 쿨다운만 무시"
+                  f"(직전 조합 {len(exclude_ids)}개는 계속 제외, 후보 {len(relaxed)}개)")
+        candidates = relaxed
 
     constrained = [p for p in candidates if p.id in _RESULT_FORCING_IDS]
     free = [p for p in candidates if p.id not in _RESULT_FORCING_IDS]
@@ -918,7 +951,7 @@ def notify_admin_failure(reason: str, attempts_log: list = None, repeat_offender
     if not GMAIL_ADDRESS or not GMAIL_APP_PW:
         _rlog("[실패 알림] 인증 정보 없음 — 알림 생략")
         return
-    today = _today_kst()
+    today = _send_date()
     subject = f"[운영 알림] 표현독해 발송 실패 — {today.isoformat()}"
     lines = [
         f"오늘({today.isoformat()}) 일본어 표현독해 메일링이 실패해서 발송되지 않았습니다.",
@@ -1089,7 +1122,7 @@ def main() -> bool:
     False를 반환해서, 호출부가 워크플로 실패로 표시할 수 있게 한다.
     이전에는 실패해도 그냥 return만 해서 GitHub Actions가 '성공'으로
     표시하는 바람에 발송 실패가 조용히 묻힌 적이 있었다."""
-    today = _today_kst()
+    today = _send_date()
 
     # 주 5일(월~금) 발송. cron을 "0 11 * * 1-5"로 한정했지만 그것만으로는
     # workflow_dispatch로 주말에 돌렸을 때를 막지 못하고, cron 요일 필드가
