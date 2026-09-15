@@ -526,13 +526,15 @@ def _check_kirai_no_double_softening(text: str) -> bool:
 #     な형용사 어간이 だ 없이 직접 접속 → 様態 (元気そうだ)
 # - 동형이의어(降り가 降る/降りる 중 어느 쪽으로 인식되든)는 두 경우 모두 活用形이
 #   "連用形"으로 같은 범주라 판정에 영향을 주지 않음을 확인했다.
-_sou_da_tokenizer = Tokenizer()
+# 형태소 분석기는 생성 비용이 있어 모듈 전역에 하나만 둔다. そうだ 판별에서
+# 시작했지만 らしい 판별도 같은 인스턴스를 쓰므로 이름을 용도 중립으로 둔다.
+_tokenizer = Tokenizer()
 
 
 def _sou_da_prev_tokens(text: str) -> list:
     """지문에서 실제 伝聞/様態 조동사로 쓰인 'そう' 토큰들의 직전 토큰을 모아 반환한다.
     そう가 부사(그렇다/그렇게)로 쓰인 경우는 품사 필터로 걸러진다."""
-    tokens = list(_sou_da_tokenizer.tokenize(text))
+    tokens = list(_tokenizer.tokenize(text))
     prevs = []
     for i, tok in enumerate(tokens):
         if tok.surface == "そう" and "助動詞語幹" in tok.part_of_speech:
@@ -560,6 +562,43 @@ def _check_sou_da(text: str, want: str) -> bool:
     판정되는 자리가 하나라도 있으면 통과시킨다."""
     prevs = _sou_da_prev_tokens(text)
     return any(_classify_prev_token(p) == want for p in prevs)
+
+
+# ── 존재 검증 보정 ─────────────────────────────────────
+# Pattern.found_in()은 리터럴 부분문자열 매칭이라, 문형과 똑같은 꼬리를 가진
+# 일반 어휘를 문형으로 오인할 수 있다. 그런 문형만 형태소 분석으로 한 번 더
+# 거른다. _EXTRA_CHECKS(용법이 맞는지)와 달리 이쪽은 "그 문형이 정말 쓰였는지"를
+# 보므로, 실패하면 "구조 조건 미충족"이 아니라 "문형 누락"으로 보고해야 한다.
+def _check_rashii(text: str) -> bool:
+    """推量の助動詞 らしい가 실제로 쓰였는지 확인한다.
+
+    「素晴らしい」「可愛らしい」「男らしい」는 형용사라서 문형 らしい가 아닌데,
+    리터럴 매칭은 꼬리만 보고 통과시킨다. 2026-09-15 4차 지문의
+    「素晴らしい経験だった」가 실제로 오탐됐고(코드는 사용됨, 판정 모델은
+    미사용으로 지적), 그 지문엔 추량의 らしい가 한 번도 없었다.
+
+    Janome는 이 둘을 품사로 명확히 가른다 — 문형은 助動詞, 어휘는 形容詞
+    (素晴らしい·可愛らしい·男らしい 모두 形容詞 한 토큰으로 분석된다).
+
+    같은 위험이 있어 보이는 っぽい에는 이 방법을 쓰면 안 된다. 정상 용법인
+    「言っているっぽい」도 形容詞로 분석돼서 문형 자체가 죽는다."""
+    return any(tok.surface == "らしい" and tok.part_of_speech.startswith("助動詞")
+               for tok in _tokenizer.tokenize(text))
+
+
+# 문형 id → 존재 판정 보정 함수. found_in()이 True인 경우에만 호출된다.
+_PRESENCE_CHECKS = {
+    "らしい": _check_rashii,
+}
+
+
+def _pattern_used(pattern, text: str) -> bool:
+    """문형이 지문에 실제로 쓰였는지. 리터럴 매칭이 기본이고, _PRESENCE_CHECKS에
+    등록된 문형은 형태소 분석으로 한 번 더 확인한다."""
+    if not pattern.found_in(text):
+        return False
+    refine = _PRESENCE_CHECKS.get(pattern.id)
+    return refine(text) if refine else True
 
 
 # 문형 id → 검증 함수. 두 인자(text, term) 또는 (text)만 받는 함수를 통일해서 다룬다.
@@ -597,7 +636,7 @@ def validate_passage(passage: str, patterns: list):
         _rlog(f"[검증] {reason}")
         return False, reason
     normalized = _normalize(passage)
-    missing = [p.id for p in patterns if not p.found_in(normalized)]
+    missing = [p.id for p in patterns if not _pattern_used(p, normalized)]
     if missing:
         reason = f"문형 누락: {', '.join(missing)}"
         _rlog(f"[검증] {reason}")
