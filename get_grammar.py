@@ -18,83 +18,29 @@ japanese-study의 자연스러운 지문 생성 파이프라인을 그대로 가
 import os
 import re
 import sys
-import json
-import time
-import random
-import smtplib
 import datetime
-import subprocess
-from zoneinfo import ZoneInfo
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email.mime.text import MIMEText
-from email import encoders
 
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 from janome.tokenizer import Tokenizer
 
-try:
-    from google import genai as google_genai
-    from google.genai import types as genai_types
-    GEMINI_AVAILABLE = True
-except ImportError:
-    GEMINI_AVAILABLE = False
-
 import grammar_bank as GB
+import ports
 
-if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
-# ── 환경변수 ───────────────────────────────────────────
-GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS")
-GMAIL_APP_PW = os.environ.get("GMAIL_APP_PASSWORD")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-EMAIL_RECIPIENTS = os.environ.get("EMAIL_RECIPIENTS", "")
-
-try:
-    from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
-    GMAIL_ADDRESS = GMAIL_ADDRESS or os.getenv("GMAIL_ADDRESS")
-    GMAIL_APP_PW = GMAIL_APP_PW or os.getenv("GMAIL_APP_PASSWORD")
-    GEMINI_API_KEY = GEMINI_API_KEY or os.getenv("GEMINI_API_KEY")
-    EMAIL_RECIPIENTS = EMAIL_RECIPIENTS or os.getenv("EMAIL_RECIPIENTS", "")
-except ImportError:
-    pass
-
+# ── 경로/기본값 ────────────────────────────────────────
+# 환경변수·자격 증명은 더 이상 이 모듈이 직접 읽지 않는다. adapters.py가
+# 읽어서 ports.Deps로 주입한다 — import만으로 부작용이 생기지 않아야
+# 테스트가 가능해지기 때문이다.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-HISTORY_FILE = os.path.join(BASE_DIR, "used_history.json")
-FAILURE_HISTORY_FILE = os.path.join(BASE_DIR, "failure_history.json")
-SHADOW_REVIEW_FILE = os.path.join(BASE_DIR, "shadow_review.json")
-RUN_LOG_FILE = os.path.join(BASE_DIR, "run_log.txt")
-
-MANUAL_RUN = os.environ.get("MANUAL_RUN") == "1"
-MANUAL_MAIL_TO = os.environ.get("MANUAL_MAIL_TO", "")
-
-COOLDOWN_RUNS = 3     # 같은 카테고리에서 최근 N회 안에 쓰인 문형은 제외
-PATTERNS_PER_DAY = 5  # 하루 지문에 쓰는 문형 개수
-SENTENCE_MIN, SENTENCE_MAX = 10, 20
-MAX_GEN_ATTEMPTS = 4
-FAILURE_REPEAT_WINDOW = 5    # 최근 N회 실행 중에서 반복 여부를 판단
-FAILURE_REPEAT_THRESHOLD = 3  # 그 안에서 이 횟수 이상 실패하면 "반복 경고"
 
 
-def _rlog(msg: str):
-    print(msg)
-    try:
-        with open(RUN_LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(str(msg) + "\n")
-    except OSError:
-        pass
-
-
-def _today_kst() -> datetime.date:
+def _today_kst(deps: ports.Deps) -> datetime.date:
     """실행 시각의 KST 날짜. 수동 실행의 회차 날짜로만 쓴다 — 정규 실행은
     _send_date()를 거쳐야 한다(이유는 그쪽 주석 참고)."""
-    return datetime.datetime.now(ZoneInfo("Asia/Seoul")).date()
+    return deps.clock.now_kst().date()
 
 
-def _send_date() -> datetime.date:
+def _send_date(deps: ports.Deps) -> datetime.date:
     """이 실행이 담당하는 '발송 회차'의 날짜. 카테고리 선택(pick_category),
     주말 가드, 주간 리포트 요일 판정(send_weekly_shadow_report), 이력 기록이
     모두 이 날짜를 기준으로 한다.
@@ -114,18 +60,18 @@ def _send_date() -> datetime.date:
     수동 실행(workflow_dispatch)은 예약이 아니라 사람이 누른 시각 자체가
     의도이므로 KST 날짜를 그대로 쓴다. 여기에 UTC 날짜를 쓰면 KST 09:00 이전
     실행에서 오히려 전날로 어긋난다."""
-    if MANUAL_RUN:
-        return _today_kst()
-    return datetime.datetime.now(datetime.timezone.utc).date()
+    if deps.mode.manual:
+        return _today_kst(deps)
+    return deps.clock.now_utc().date()
 
 
 # ── 카테고리 선정 ──────────────────────────────────────
-def pick_category(today: datetime.date) -> dict:
-    forced = os.environ.get("FORCE_CATEGORY", "").strip()
+def pick_category(deps: ports.Deps, today: datetime.date) -> dict:
+    forced = deps.mode.forced_category
     if forced:
         cat = GB.CATEGORY_BY_KEY.get(forced)
         if cat:
-            _rlog(f"[카테고리] 강제 지정: {cat['key']}")
+            deps.log(f"[카테고리] 강제 지정: {cat['key']}")
             return cat
     weekday = today.weekday()
     cat = GB.CATEGORY_BY_WEEKDAY.get(weekday)
@@ -134,38 +80,24 @@ def pick_category(today: datetime.date) -> dict:
         # (자동 실행은 main()의 주말 가드에서 이미 중단된다) 그때는 월요일
         # 카테고리로 대체해 수동 발송 길을 막지 않는다.
         cat = GB.CATEGORY_BY_WEEKDAY[0]
-        _rlog(f"[카테고리] {today} 은 순환표에 없는 요일 — 기본값으로 대체: {cat['key']}")
+        deps.log(f"[카테고리] {today} 은 순환표에 없는 요일 — 기본값으로 대체: {cat['key']}")
     else:
-        _rlog(f"[카테고리] {today} → {cat['key']} (내부 로그 전용, 메일엔 비노출)")
+        deps.log(f"[카테고리] {today} → {cat['key']} (내부 로그 전용, 메일엔 비노출)")
     return cat
 
 
 # ── 쿨다운 이력 ────────────────────────────────────────
-def load_history() -> dict:
-    if not os.path.exists(HISTORY_FILE):
-        return {"runs": []}
-    try:
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        _rlog("[이력] 파일 손상 또는 없음 — 새로 시작")
-        return {"runs": []}
+def load_history(deps: ports.Deps) -> dict:
+    return deps.store.read(ports.HISTORY, {"runs": []})
 
 
 # ── 실패 이력 (반복 실패 문형을 자동으로 감지하기 위한 별도 기록) ──────
-def load_failure_history() -> dict:
-    if not os.path.exists(FAILURE_HISTORY_FILE):
-        return {"runs": []}
-    try:
-        with open(FAILURE_HISTORY_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        _rlog("[실패이력] 파일 손상 또는 없음 — 새로 시작")
-        return {"runs": []}
+def load_failure_history(deps: ports.Deps) -> dict:
+    return deps.store.read(ports.FAILURE_HISTORY, {"runs": []})
 
 
-def append_failure_history(fail_history: dict, category_key: str,
-                            attempts_log: list, today: datetime.date):
+def append_failure_history(deps: ports.Deps, fail_history: dict, category_key: str,
+                           attempts_log: list, today: datetime.date):
     """오늘 실패에서 등장한 (문형, 실패사유) 쌍을 전부 기록한다.
     실패 안 한 날(발송 성공한 날)은 이 파일에 아무것도 안 남는다 —
     "성공 여부"가 아니라 "실패가 있었는지"만 추적하는 파일이기 때문이다."""
@@ -178,24 +110,17 @@ def append_failure_history(fail_history: dict, category_key: str,
         "category": category_key,
         "failures": entries,
     })
-    fail_history["runs"] = fail_history["runs"][-60:]
-    with open(FAILURE_HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(fail_history, f, ensure_ascii=False, indent=2)
+    fail_history["runs"] = fail_history["runs"][-deps.settings.history_keep_runs:]
+    deps.store.write(ports.FAILURE_HISTORY, fail_history)
 
 
 # ── 그림자 비교 (코드 검증 vs LLM 판정 불일치 기록) ──────────────
-def load_shadow_review() -> dict:
-    if not os.path.exists(SHADOW_REVIEW_FILE):
-        return {"entries": []}
-    try:
-        with open(SHADOW_REVIEW_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        _rlog("[그림자비교] 파일 손상 또는 없음 — 새로 시작")
-        return {"entries": []}
+def load_shadow_review(deps: ports.Deps) -> dict:
+    return deps.store.read(ports.SHADOW_REVIEW, {"entries": []})
 
 
-def append_shadow_review(review: dict, category_key: str, shadow_log: list, today: datetime.date):
+def append_shadow_review(deps: ports.Deps, review: dict, category_key: str,
+                         shadow_log: list, today: datetime.date):
     """shadow_log에는 이미 code_ok != judge_ok인 항목만 들어 있다(일치하는
     항목은 generate_passage()에서 아예 담지 않는다). human_label은 사람이
     메일을 보고 채울 때까지 항상 null로 시작한다."""
@@ -210,16 +135,15 @@ def append_shadow_review(review: dict, category_key: str, shadow_log: list, toda
             "snippet": item["snippet"],
             "human_label": None,
         })
-    with open(SHADOW_REVIEW_FILE, "w", encoding="utf-8") as f:
-        json.dump(review, f, ensure_ascii=False, indent=2)
+    deps.store.write(ports.SHADOW_REVIEW, review)
 
 
-def find_repeat_offenders(fail_history: dict) -> list:
-    """최근 FAILURE_REPEAT_WINDOW회의 실패 기록 안에서, 특정 문형이
-    FAILURE_REPEAT_THRESHOLD회 이상 등장했으면 "반복 실패"로 판정한다.
+def find_repeat_offenders(deps: ports.Deps, fail_history: dict) -> list:
+    """최근 settings.failure_repeat_window회의 실패 기록 안에서, 특정 문형이
+    settings.failure_repeat_threshold회 이상 등장했으면 "반복 실패"로 판정한다.
     문형이 실제로 실패에 관여했다는 것만 셀 뿐, 매번 같은 사유인지는
     구분하지 않는다 — 사유가 달라도 그 문형이 계속 말썽이라는 신호는 유효하다."""
-    recent_runs = fail_history.get("runs", [])[-FAILURE_REPEAT_WINDOW:]
+    recent_runs = fail_history.get("runs", [])[-deps.settings.failure_repeat_window:]
     counts = {}
     for run in recent_runs:
         seen_today = set()
@@ -229,12 +153,13 @@ def find_repeat_offenders(fail_history: dict) -> list:
                 continue  # 같은 날 같은 문형은 한 번만 카운트(시도 4번 다 중복 집계 방지)
             seen_today.add(pid)
             counts[pid] = counts.get(pid, 0) + 1
-    return [pid for pid, c in counts.items() if c >= FAILURE_REPEAT_THRESHOLD]
+    return [pid for pid, c in counts.items()
+            if c >= deps.settings.failure_repeat_threshold]
 
 
-def recently_used(history: dict, category_key: str) -> set:
+def recently_used(deps: ports.Deps, history: dict, category_key: str) -> set:
     matching = [r for r in history.get("runs", []) if r.get("category") == category_key]
-    recent = matching[-COOLDOWN_RUNS:]
+    recent = matching[-deps.settings.cooldown_runs:]
     used = set()
     for r in recent:
         used.update(r.get("patterns", []))
@@ -248,25 +173,26 @@ def recently_used(history: dict, category_key: str) -> set:
 _RESULT_FORCING_IDS = {"あげく", "ばかりに", "ないことには", "なくしては", "いかんによって"}
 
 
-def select_patterns(category: dict, history: dict, exclude_ids=None) -> list:
+def select_patterns(deps: ports.Deps, category: dict, history: dict,
+                    exclude_ids=None) -> list:
     exclude_ids = exclude_ids or set()
-    used = recently_used(history, category["key"]) | exclude_ids
+    used = recently_used(deps, history, category["key"]) | exclude_ids
     pool = category["patterns"]
     candidates = [p for p in pool if p.id not in used]
-    if len(candidates) < PATTERNS_PER_DAY + 2:
+    if len(candidates) < deps.settings.cooldown_bypass_threshold:
         # 쿨다운은 풀어도 exclude_ids는 유지한다. 여기서 pool 전체로 되돌리면
         # 직전 시도를 죽인 조합이 그대로 다시 뽑힌다 — 재시도 상황은 정의상
         # 후보가 얇아진 상태라 이 우회가 반드시 발동하고, 결국 재선정이 가장
         # 필요한 순간에만 골라서 무력화된다(2026-09-15 인용 회차에서 재선정
         # 조합이 직전과 3/5 겹쳐 そうだ(様態)가 유임, 2·3차 연속 실패).
         relaxed = [p for p in pool if p.id not in exclude_ids]
-        if len(relaxed) < PATTERNS_PER_DAY:
+        if len(relaxed) < deps.settings.patterns_per_day:
             # exclude_ids까지 빼면 5개를 못 채우는 극단적 경우에만 전체 풀로.
-            _rlog(f"[쿨다운] 후보 부족({len(candidates)}개) — 직전 조합 제외로도"
+            deps.log(f"[쿨다운] 후보 부족({len(candidates)}개) — 직전 조합 제외로도"
                   f" 부족({len(relaxed)}개), 전체 풀 사용")
             relaxed = pool
         else:
-            _rlog(f"[쿨다운] 후보 부족({len(candidates)}개) — 쿨다운만 무시"
+            deps.log(f"[쿨다운] 후보 부족({len(candidates)}개) — 쿨다운만 무시"
                   f"(직전 조합 {len(exclude_ids)}개는 계속 제외, 후보 {len(relaxed)}개)")
         candidates = relaxed
 
@@ -275,72 +201,38 @@ def select_patterns(category: dict, history: dict, exclude_ids=None) -> list:
 
     picked = []
     if constrained:
-        picked.append(random.choice(constrained))
-    remaining = PATTERNS_PER_DAY - len(picked)
+        picked.append(deps.rng.choice(constrained))
+    remaining = deps.settings.patterns_per_day - len(picked)
     if len(free) >= remaining:
-        picked += random.sample(free, remaining)
+        picked += deps.rng.sample(free, remaining)
     else:
         # free 풀이 부족한 예외적 경우 — constrained에서 마저 채움(모자란 만큼만)
         picked += free
         leftover = [p for p in constrained if p not in picked]
-        picked += random.sample(leftover, min(PATTERNS_PER_DAY - len(picked), len(leftover)))
+        picked += deps.rng.sample(
+            leftover, min(deps.settings.patterns_per_day - len(picked), len(leftover)))
 
-    _rlog(f"[문형] 선택됨: {', '.join(p.id for p in picked)}")
+    deps.log(f"[문형] 선택됨: {', '.join(p.id for p in picked)}")
     return picked
 
 
-def append_history(history: dict, category_key: str, patterns: list, today: datetime.date):
+def append_history(deps: ports.Deps, history: dict, category_key: str,
+                   patterns: list, today: datetime.date):
     history.setdefault("runs", []).append({
         "date": today.isoformat(),
         "category": category_key,
         "patterns": [p.id for p in patterns],
     })
-    # 무한정 커지지 않도록 최근 60회만 보존
-    history["runs"] = history["runs"][-60:]
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
+    # 무한정 커지지 않도록 최근 N회만 보존
+    history["runs"] = history["runs"][-deps.settings.history_keep_runs:]
+    deps.store.write(ports.HISTORY, history)
 
 
 # ── Gemini 호출 ────────────────────────────────────────
-_GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash"]
-
-
-def _call_gemini(prompt: str, temperature: float, model: str = None) -> str:
-    if not GEMINI_AVAILABLE or not GEMINI_API_KEY:
-        return ""
-    client = google_genai.Client(api_key=GEMINI_API_KEY)
-    for model_id in ([model] if model else _GEMINI_MODELS):
-        for attempt in range(2):
-            try:
-                cfg = {"temperature": temperature, "max_output_tokens": 2200}
-                if "2.5" in model_id:
-                    cfg["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=0)
-                res = client.models.generate_content(
-                    model=model_id, contents=prompt,
-                    config=genai_types.GenerateContentConfig(**cfg),
-                )
-                return res.text or ""
-            except Exception as e:
-                err = str(e)
-                is_quota = "429" in err or "quota" in err.lower()
-                if is_quota and attempt == 0:
-                    m = re.search(r"retry in (\d+(?:\.\d+)?)", err)
-                    wait = int(float(m.group(1))) + 5 if m else 60
-                    _rlog(f"[Gemini] {model_id} 한도 초과. {wait}초 대기 후 재시도")
-                    time.sleep(wait)
-                    continue
-                if is_quota:
-                    time.sleep(10)
-                    break
-                if ("503" in err or "UNAVAILABLE" in err) and attempt == 0:
-                    time.sleep(30)
-                    continue
-                _rlog(f"[Gemini] {model_id} 오류(폴백 전환): {e}")
-                break
-    return ""
-
-
-def build_prompt(patterns: list, level_tag: str) -> str:
+def build_prompt(deps: ports.Deps, patterns: list, level_tag: str) -> str:
+    s_min = deps.settings.sentence_min
+    s_max = deps.settings.sentence_max
+    s_target = s_min + 2   # 하한 바로 위를 목표치로 제시한다
     lines = []
     for p in patterns:
         if p.note:
@@ -356,7 +248,7 @@ def build_prompt(patterns: list, level_tag: str) -> str:
 【出力ルール — 絶対厳守】
 1. まず一行目に、内容を表す短い見出しを日本語で書く(文型名や文法用語は絶対に書かない、あくまで話の題材を表す一言)
 2. 二行目は「---」だけ
-3. 三行目以降の文章は、必ず{SENTENCE_MIN}文以上{SENTENCE_MAX}文以内(句点「。」の数で数える)にすること。目安ではなく絶対条件であり、多すぎても少なすぎても失格とする。文型をすべて入れることよりもこの文数制限を優先せよ。目標は{SENTENCE_MIN + 2}文前後(下限ギリギリを狙わない)。よくある失敗は、必要な文型を使い終えた時点で話を早々にまとめてしまい、{SENTENCE_MIN}文に届かないまま終わることである。それを避けるため、出来事の経緯・心情の変化・具体的なエピソードを1つ以上追加で描写し、話を十分に展開させること。書き終える前に句点の数を実際に数え、{SENTENCE_MIN}文未満なら具体的な描写を足してから出力すること
+3. 三行目以降の文章は、必ず{s_min}文以上{s_max}文以内(句点「。」の数で数える)にすること。目安ではなく絶対条件であり、多すぎても少なすぎても失格とする。文型をすべて入れることよりもこの文数制限を優先せよ。目標は{s_target}文前後(下限ギリギリを狙わない)。よくある失敗は、必要な文型を使い終えた時点で話を早々にまとめてしまい、{s_min}文に届かないまま終わることである。それを避けるため、出来事の経緯・心情の変化・具体的なエピソードを1つ以上追加で描写し、話を十分に展開させること。書き終える前に句点の数を実際に数え、{s_min}文未満なら具体的な描写を足してから出力すること
 4. 文章は一つのまとまった話として展開すること(起承転結や心情の変化があること)。バラバラな文を並べただけにしない。ただし、心情や登場人物への評価が変化する場合は、その変化を自然に繋ぐ描写を必ず入れること(例: 批判的な描写から好意的な描写に移る場合、その心境の転換点を一文入れる)。前半と後半で書き手の評価や感情のトーンが理由なく矛盾しないよう、書き終えた後に一度全体を読み返して確認すること
 5. 上に挙げた文型を全部、不自然にならない範囲で文章中に組み込む。ただし文数制限(ルール3)を破ってまで全部を無理に詰め込む必要はない。特に【注意】付きの文型は、指定された接続・文脈を外れると文法的に誤りになるため、必ず指示通りに使うこと
 6. 説明、翻訳、注釈、箇条書き、記号、マークダウンの装飾は一切書かない。特に「**」のような強調記号は絶対に使わない(文型を目立たせる目的で強調するのは厳禁)。読み物本文だけを、装飾のない平文で書く
@@ -526,13 +418,15 @@ def _check_kirai_no_double_softening(text: str) -> bool:
 #     な형용사 어간이 だ 없이 직접 접속 → 様態 (元気そうだ)
 # - 동형이의어(降り가 降る/降りる 중 어느 쪽으로 인식되든)는 두 경우 모두 活用形이
 #   "連用形"으로 같은 범주라 판정에 영향을 주지 않음을 확인했다.
-_sou_da_tokenizer = Tokenizer()
+# 형태소 분석기는 생성 비용이 있어 모듈 전역에 하나만 둔다. そうだ 판별에서
+# 시작했지만 らしい 판별도 같은 인스턴스를 쓰므로 이름을 용도 중립으로 둔다.
+_tokenizer = Tokenizer()
 
 
 def _sou_da_prev_tokens(text: str) -> list:
     """지문에서 실제 伝聞/様態 조동사로 쓰인 'そう' 토큰들의 직전 토큰을 모아 반환한다.
     そう가 부사(그렇다/그렇게)로 쓰인 경우는 품사 필터로 걸러진다."""
-    tokens = list(_sou_da_tokenizer.tokenize(text))
+    tokens = list(_tokenizer.tokenize(text))
     prevs = []
     for i, tok in enumerate(tokens):
         if tok.surface == "そう" and "助動詞語幹" in tok.part_of_speech:
@@ -562,6 +456,43 @@ def _check_sou_da(text: str, want: str) -> bool:
     return any(_classify_prev_token(p) == want for p in prevs)
 
 
+# ── 존재 검증 보정 ─────────────────────────────────────
+# Pattern.found_in()은 리터럴 부분문자열 매칭이라, 문형과 똑같은 꼬리를 가진
+# 일반 어휘를 문형으로 오인할 수 있다. 그런 문형만 형태소 분석으로 한 번 더
+# 거른다. _EXTRA_CHECKS(용법이 맞는지)와 달리 이쪽은 "그 문형이 정말 쓰였는지"를
+# 보므로, 실패하면 "구조 조건 미충족"이 아니라 "문형 누락"으로 보고해야 한다.
+def _check_rashii(text: str) -> bool:
+    """推量の助動詞 らしい가 실제로 쓰였는지 확인한다.
+
+    「素晴らしい」「可愛らしい」「男らしい」는 형용사라서 문형 らしい가 아닌데,
+    리터럴 매칭은 꼬리만 보고 통과시킨다. 2026-09-15 4차 지문의
+    「素晴らしい経験だった」가 실제로 오탐됐고(코드는 사용됨, 판정 모델은
+    미사용으로 지적), 그 지문엔 추량의 らしい가 한 번도 없었다.
+
+    Janome는 이 둘을 품사로 명확히 가른다 — 문형은 助動詞, 어휘는 形容詞
+    (素晴らしい·可愛らしい·男らしい 모두 形容詞 한 토큰으로 분석된다).
+
+    같은 위험이 있어 보이는 っぽい에는 이 방법을 쓰면 안 된다. 정상 용법인
+    「言っているっぽい」도 形容詞로 분석돼서 문형 자체가 죽는다."""
+    return any(tok.surface == "らしい" and tok.part_of_speech.startswith("助動詞")
+               for tok in _tokenizer.tokenize(text))
+
+
+# 문형 id → 존재 판정 보정 함수. found_in()이 True인 경우에만 호출된다.
+_PRESENCE_CHECKS = {
+    "らしい": _check_rashii,
+}
+
+
+def _pattern_used(pattern, text: str) -> bool:
+    """문형이 지문에 실제로 쓰였는지. 리터럴 매칭이 기본이고, _PRESENCE_CHECKS에
+    등록된 문형은 형태소 분석으로 한 번 더 확인한다."""
+    if not pattern.found_in(text):
+        return False
+    refine = _PRESENCE_CHECKS.get(pattern.id)
+    return refine(text) if refine else True
+
+
 # 문형 id → 검증 함수. 두 인자(text, term) 또는 (text)만 받는 함수를 통일해서 다룬다.
 _EXTRA_CHECKS = {
     "ないことには": lambda t: _check_pair_negative(t, "ないことには"),
@@ -583,7 +514,7 @@ _EXTRA_CHECKS = {
 }
 
 
-def validate_passage(passage: str, patterns: list):
+def validate_passage(deps: ports.Deps, passage: str, patterns: list):
     """(통과 여부, 실패 사유) 튜플을 반환한다. 실패 사유는 사람이 읽고 바로
     원인을 알 수 있는 짧은 문자열로, 실패 알림 메일에 그대로 실린다."""
     if not passage:
@@ -592,15 +523,16 @@ def validate_passage(passage: str, patterns: list):
     if not stripped.endswith("。"):
         return False, "생성 중간에 잘림(마지막 문장이 완성되지 않음)"
     sentence_count = passage.count("。")
-    if not (SENTENCE_MIN <= sentence_count <= SENTENCE_MAX):
-        reason = f"문장 수 {sentence_count}개 — 범위({SENTENCE_MIN}~{SENTENCE_MAX}) 벗어남"
-        _rlog(f"[검증] {reason}")
+    s_min, s_max = deps.settings.sentence_min, deps.settings.sentence_max
+    if not (s_min <= sentence_count <= s_max):
+        reason = f"문장 수 {sentence_count}개 — 범위({s_min}~{s_max}) 벗어남"
+        deps.log(f"[검증] {reason}")
         return False, reason
     normalized = _normalize(passage)
-    missing = [p.id for p in patterns if not p.found_in(normalized)]
+    missing = [p.id for p in patterns if not _pattern_used(p, normalized)]
     if missing:
         reason = f"문형 누락: {', '.join(missing)}"
-        _rlog(f"[검증] {reason}")
+        deps.log(f"[검증] {reason}")
         return False, reason
     structural_fail = [
         p.id for p in patterns
@@ -608,7 +540,7 @@ def validate_passage(passage: str, patterns: list):
     ]
     if structural_fail:
         reason = f"구조 조건 미충족: {', '.join(structural_fail)}"
-        _rlog(f"[검증] {reason}")
+        deps.log(f"[검증] {reason}")
         return False, reason
     return True, ""
 
@@ -617,9 +549,6 @@ def validate_passage(passage: str, patterns: list):
 # validate_passage()는 문장 수·문형 존재 여부·일부 구조 제약(_EXTRA_CHECKS 11개)만
 # 본다. 89개 중 _EXTRA_CHECKS가 없는 78개는 규칙 기반 검증이 불가능하다고 이미
 # 판단된 것들이라, 생성과 다른 모델로 한 번 더 문법 오류 여부만 확인한다.
-_JUDGE_MODEL = "gemini-3.5-flash"  # 생성이 2.5-flash이므로 다른 모델로 교차 판정
-
-
 def build_judge_prompt(passage: str, patterns: list) -> str:
     """생성에 쓴 문형 목록에 대해서만 개별로 '문법적으로 틀렸는가'를 묻는다.
     '자연스러운가'를 묻지 않는다 — 그러면 어휘 선택 취향까지 반려 대상이 된다."""
@@ -670,14 +599,15 @@ def parse_judge_output(raw: str, patterns: list) -> dict:
     return result
 
 
-def judge_naturalness(passage: str, patterns: list) -> dict:
+def judge_naturalness(deps: ports.Deps, passage: str, patterns: list) -> dict:
     """실패해도(호출 실패, 파싱 실패) 전부 ok=True를 반환해 발송을 막지 않는다.
     판정은 방어선이지 필수 관문이 아니다 — 판정 자체의 장애가 서비스 전체를
     멈추게 해서는 안 된다."""
     prompt = build_judge_prompt(passage, patterns)
-    raw = _call_gemini(prompt, temperature=0.0, model=_JUDGE_MODEL)  # temperature 0: 판정은 일관성이 먼저
+    # temperature 0: 판정은 일관성이 먼저
+    raw = deps.llm.generate(prompt, temperature=0.0, model=deps.settings.judge_model)
     if not raw:
-        _rlog("[판정] 호출 실패 — 판정 생략하고 통과 처리")
+        deps.log("[판정] 호출 실패 — 판정 생략하고 통과 처리")
         return {p.id: {"ok": True, "note": "판정 호출 실패"} for p in patterns}
     return parse_judge_output(raw, patterns)
 
@@ -709,24 +639,25 @@ def compare_judgments(code_results: dict, judge_result: dict) -> dict:
     return comparison
 
 
-def generate_passage(category: dict, history: dict):
-    patterns = select_patterns(category, history)
+def generate_passage(deps: ports.Deps, category: dict, history: dict):
+    patterns = select_patterns(deps, category, history)
     temperatures = [0.7, 0.6, 0.4, 0.2]
     attempts_log = []  # 실패 알림 메일에 그대로 실릴 시도별 진단 정보
     shadow_log = []     # 코드 검증 vs LLM 판정 불일치 기록 (발송 여부에 영향 없음)
-    for attempt in range(MAX_GEN_ATTEMPTS):
+    for attempt in range(deps.settings.max_gen_attempts):
         if attempt == 2:
             # 두 번 실패하면 문형 조합 자체를 바꿔서 재시도. 직전 조합을
             # exclude_ids로 넘기지 않으면 실패 원인 문형이 그대로 다시 뽑혀
             # 남은 시도까지 같은 지뢰를 밟는다(2026-09-13 かえって〜てしまう가
             # 재선정 후에도 유임되어 4회 전부 실패).
-            _rlog("[재시도] 문형 조합 교체")
-            patterns = select_patterns(category, history,
+            deps.log("[재시도] 문형 조합 교체")
+            patterns = select_patterns(deps, category, history,
                                        exclude_ids={p.id for p in patterns})
-        prompt = build_prompt(patterns, category["level_tag"])
-        raw = _call_gemini(prompt, temperatures[attempt])
+        prompt = build_prompt(deps, patterns, category["level_tag"])
+        raw = deps.llm.generate(prompt, temperatures[attempt])
         topic, passage = parse_gemini_output(raw)
-        ok, reason = validate_passage(passage, patterns) if passage else (False, "Gemini 출력 파싱 실패(--- 구분자 없음)")
+        ok, reason = (validate_passage(deps, passage, patterns) if passage
+                      else (False, "Gemini 출력 파싱 실패(--- 구분자 없음)"))
 
         # 그림자 비교: validate_passage()의 통과/실패와 무관하게, 지문이 있으면
         # 항상 판정과 코드 검증을 나란히 실행해 불일치를 기록한다(재시도 여부에는
@@ -734,7 +665,7 @@ def generate_passage(category: dict, history: dict):
         # 이 비교의 핵심 데이터다.
         judgment = None
         if passage:
-            judgment = judge_naturalness(passage, patterns)
+            judgment = judge_naturalness(deps, passage, patterns)
             code_results = check_extra_structural(passage, patterns)
             comparison = compare_judgments(code_results, judgment)
             for pid, c in comparison.items():
@@ -753,7 +684,7 @@ def generate_passage(category: dict, history: dict):
                 reason = "자연스러움 판정 실패: " + ", ".join(failed.keys())
 
         if ok:
-            _rlog(f"[생성] {attempt + 1}번째 시도에서 성공")
+            deps.log(f"[생성] {attempt + 1}번째 시도에서 성공")
             return topic or "日本語の読み物", passage, patterns, attempts_log, shadow_log
         # 실패 사유(문형 누락/구조 미충족/문장 수)는 validate_passage가 이미
         # 로그에 남기지만, 정작 원문이 없으면 "왜" 실패했는지 사후에 알 수 없다.
@@ -761,10 +692,10 @@ def generate_passage(category: dict, history: dict):
         # 메일에 그대로 실릴 수 있게 구조화된 형태로도 모아둔다.
         snippet = passage if passage else raw
         if passage:
-            _rlog(f"[생성] {attempt + 1}번째 시도 원문(검증 실패):\n{passage}")
+            deps.log(f"[생성] {attempt + 1}번째 시도 원문(검증 실패):\n{passage}")
         else:
-            _rlog(f"[생성] {attempt + 1}번째 시도: Gemini 출력 파싱 실패. raw 응답:\n{raw!r}")
-        _rlog(f"[생성] {attempt + 1}번째 시도 실패")
+            deps.log(f"[생성] {attempt + 1}번째 시도: Gemini 출력 파싱 실패. raw 응답:\n{raw!r}")
+        deps.log(f"[생성] {attempt + 1}번째 시도 실패")
         attempts_log.append({
             "attempt": attempt + 1,
             "patterns": [p.id for p in patterns],
@@ -772,38 +703,12 @@ def generate_passage(category: dict, history: dict):
             "snippet": (snippet or "")[:300],
             "judgment": judgment,   # 신규 필드. None이면 판정 단계 전에 실패한 것
         })
-    _rlog("[생성] 전체 시도 실패 — 발송 중단")
+    deps.log("[생성] 전체 시도 실패 — 발송 중단")
     return None, None, patterns, attempts_log, shadow_log
 
 
 # ── PDF / 메일 템플릿 (japanese-study 원본 형식) ───────────
 WEEKDAY_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-
-
-def find_font(style: str = "") -> str:
-    """style: "" (Regular) 또는 "B" (Bold). Bold 파일이 없으면 Regular로 대체한다."""
-    import glob
-    env_key = "JAPANESE_FONT_PATH_BOLD" if style == "B" else "JAPANESE_FONT_PATH"
-    env_font = os.environ.get(env_key) or (os.environ.get("JAPANESE_FONT_PATH") if style != "B" else None)
-    if env_font and os.path.exists(env_font):
-        return env_font
-    patterns = [
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-        "/usr/share/fonts/**/NotoSansCJK*Bold*.ttc",
-    ] if style == "B" else [
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/**/NotoSansCJK*Regular*.ttc",
-        "/usr/share/fonts/**/*CJK*Regular*.ttc",
-        "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
-        "/usr/share/fonts/**/*ipag*.ttf",
-    ]
-    for pattern in patterns:
-        hits = glob.glob(pattern, recursive=True)
-        if hits:
-            return sorted(hits)[0]
-    if style == "B":
-        return find_font("")  # Bold 못 찾으면 Regular로 대체
-    raise FileNotFoundError("일본어 폰트를 찾을 수 없습니다. JAPANESE_FONT_PATH를 지정하세요.")
 
 
 # PDF/HTML은 header_lines() 대신 build_pdf/build_html 안에서 직접 스타일링한다.
@@ -823,9 +728,10 @@ class ReadingPDF(FPDF):
         self.set_auto_page_break(auto=True, margin=18)
 
 
-def build_pdf(today: datetime.date, topic: str, passage: str) -> str:
-    font_regular = find_font("")
-    font_bold = find_font("B")
+def build_pdf(deps: ports.Deps, today: datetime.date, topic: str,
+              passage: str) -> str:
+    font_regular = deps.fonts.find("")
+    font_bold = deps.fonts.find("B")
     pdf = ReadingPDF(font_regular, font_bold)
     pdf.add_page()
     page_w = pdf.w - pdf.l_margin - pdf.r_margin
@@ -864,7 +770,7 @@ def build_pdf(today: datetime.date, topic: str, passage: str) -> str:
 
     output_path = os.path.join(BASE_DIR, f"JPN_{today.isoformat()}_表現読解.pdf")
     pdf.output(output_path)
-    _rlog(f"[PDF] 생성 완료: {output_path}")
+    deps.log(f"[PDF] 생성 완료: {output_path}")
     return output_path
 
 
@@ -898,46 +804,40 @@ def _mask_email(addr: str) -> str:
     return f"{masked}@{domain}"
 
 
-def send_mail(subject: str, html: str, pdf_path: str) -> bool:
-    if not GMAIL_ADDRESS or not GMAIL_APP_PW:
-        _rlog("[메일] 인증 정보 없음 — 발송 생략")
+def resolve_recipients(deps: ports.Deps) -> list:
+    """수동 실행에 단일 수신자가 지정됐으면 그쪽만, 아니면 구독자 전체."""
+    if deps.mode.manual and deps.mode.manual_mail_to:
+        deps.log(f"[메일] 수동 실행 — 수신자 고정: "
+                 f"{_mask_email(deps.mode.manual_mail_to)}")
+        return [deps.mode.manual_mail_to]
+    return deps.secrets.recipient_list()
+
+
+def send_mail(deps: ports.Deps, subject: str, html: str, pdf_path: str) -> bool:
+    if not deps.secrets.can_send_mail():
+        deps.log("[메일] 인증 정보 없음 — 발송 생략")
         return False
-    if MANUAL_RUN and MANUAL_MAIL_TO:
-        recipients = [MANUAL_MAIL_TO]
-        _rlog(f"[메일] 수동 실행 — 수신자 고정: {_mask_email(MANUAL_MAIL_TO)}")
-    else:
-        recipients = [r.strip() for r in EMAIL_RECIPIENTS.split(",") if r.strip()]
+    recipients = resolve_recipients(deps)
     if not recipients:
-        _rlog("[메일] 수신자 없음 — 발송 생략")
+        deps.log("[메일] 수신자 없음 — 발송 생략")
         return False
-
-    msg = MIMEMultipart()
-    msg["From"] = GMAIL_ADDRESS
-    msg["To"] = ", ".join(recipients)
-    msg["Subject"] = subject
-    msg.attach(MIMEText(html, "html", "utf-8"))
-
-    if pdf_path and os.path.exists(pdf_path):
-        with open(pdf_path, "rb") as f:
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(f.read())
-        encoders.encode_base64(part)
-        part.add_header("Content-Disposition", "attachment",
-                         filename=os.path.basename(pdf_path))
-        msg.attach(part)
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(GMAIL_ADDRESS, GMAIL_APP_PW)
-            server.sendmail(GMAIL_ADDRESS, recipients, msg.as_string())
-        _rlog(f"[메일] 발송 완료 → {', '.join(_mask_email(r) for r in recipients)}")
-        return True
-    except smtplib.SMTPException as e:
-        _rlog(f"[메일] 발송 실패: {e}")
-        return False
+    ok = deps.mailer.send(subject, html, recipients, pdf_path)
+    if ok:
+        deps.log(f"[메일] 발송 완료 → "
+                 f"{', '.join(_mask_email(r) for r in recipients)}")
+    return ok
 
 
-def notify_admin_failure(reason: str, attempts_log: list = None, repeat_offenders: list = None):
+def _plain_to_html(lines: list) -> str:
+    """운영자 알림은 원래 plain text였다. Mailer 포트는 본문을 html로 받으므로
+    <pre>로 감싸 줄바꿈과 정렬을 그대로 유지한다(메일 내용 자체는 동일)."""
+    import html as _html
+    return "<pre style=\"font-family:monospace;white-space:pre-wrap\">" + \
+        _html.escape("\n".join(lines)) + "</pre>"
+
+
+def notify_admin_failure(deps: ports.Deps, reason: str, attempts_log: list = None,
+                         repeat_offenders: list = None):
     """지문 생성 실패 등으로 오늘 메일링을 못 보낸 경우, 운영자(발신 계정 본인)에게
     실패 사실을 알린다. 이게 없으면 워크플로 로그를 직접 열어보지 않는 이상
     실패가 조용히 묻힌다.
@@ -948,10 +848,10 @@ def notify_admin_failure(reason: str, attempts_log: list = None, repeat_offender
 
     repeat_offenders가 있으면, 최근 며칠간 반복적으로 실패에 관여한 문형을
     경고로 먼저 보여준다 — 오늘 실패가 우연인지 누적된 문제인지 바로 판단할 수 있다."""
-    if not GMAIL_ADDRESS or not GMAIL_APP_PW:
-        _rlog("[실패 알림] 인증 정보 없음 — 알림 생략")
+    if not deps.secrets.can_send_mail():
+        deps.log("[실패 알림] 인증 정보 없음 — 알림 생략")
         return
-    today = _send_date()
+    today = _send_date(deps)
     subject = f"[운영 알림] 표현독해 발송 실패 — {today.isoformat()}"
     lines = [
         f"오늘({today.isoformat()}) 일본어 표현독해 메일링이 실패해서 발송되지 않았습니다.",
@@ -962,7 +862,8 @@ def notify_admin_failure(reason: str, attempts_log: list = None, repeat_offender
     if repeat_offenders:
         lines.append(
             f"⚠ 반복 경고: {', '.join(repeat_offenders)}는(은) 최근 "
-            f"{FAILURE_REPEAT_WINDOW}회 실행 중 {FAILURE_REPEAT_THRESHOLD}회 이상 "
+            f"{deps.settings.failure_repeat_window}회 실행 중 "
+            f"{deps.settings.failure_repeat_threshold}회 이상 "
             f"실패에 관여했습니다. 지침 보강이 필요할 수 있습니다."
         )
         lines.append("")
@@ -977,7 +878,8 @@ def notify_admin_failure(reason: str, attempts_log: list = None, repeat_offender
                 for pid, v in judgment.items():
                     if not v["ok"]:
                         detail = f": {v['note']}" if v["note"] else ""
-                        lines.append(f"  [판정-실격] {pid}{detail}  (판정 모델: {_JUDGE_MODEL})")
+                        lines.append(f"  [판정-실격] {pid}{detail}  "
+                                     f"(판정 모델: {deps.settings.judge_model})")
                 for pid, v in judgment.items():
                     if v["ok"] and v["note"]:
                         lines.append(f"  [판정-참고, 발송에는 영향 없음] {pid}: {v['note']}")
@@ -986,101 +888,37 @@ def notify_admin_failure(reason: str, attempts_log: list = None, repeat_offender
         lines.append("(이 내용을 그대로 복사해서 진단을 요청하면 됩니다)")
     else:
         lines.append("자세한 내용은 GitHub Actions 실행 로그(run_log.txt)를 확인하세요.")
-    body = "\n".join(lines)
-    try:
-        msg = MIMEText(body, "plain", "utf-8")
-        msg["From"] = GMAIL_ADDRESS
-        msg["To"] = GMAIL_ADDRESS
-        msg["Subject"] = subject
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(GMAIL_ADDRESS, GMAIL_APP_PW)
-            server.sendmail(GMAIL_ADDRESS, [GMAIL_ADDRESS], msg.as_string())
-        _rlog(f"[실패 알림] 발송 완료 → {_mask_email(GMAIL_ADDRESS)}")
-    except smtplib.SMTPException as e:
-        _rlog(f"[실패 알림] 발송 자체도 실패: {e}")
+    admin = deps.secrets.gmail_address
+    if deps.mailer.send(subject, _plain_to_html(lines), [admin]):
+        deps.log(f"[실패 알림] 발송 완료 → {_mask_email(admin)}")
+    else:
+        deps.log("[실패 알림] 발송 자체도 실패")
 
 
 # ── 이력 커밋 (성공한 경우에만 호출됨) ──────────────────
-def commit_history(today: datetime.date):
-    if os.environ.get("GITHUB_ACTIONS") != "true":
-        _rlog("[이력] 로컬 실행 — git 커밋 생략 (파일만 저장됨)")
-        return
-    try:
-        subprocess.run(["git", "config", "user.email", "actions@github.com"],
-                        check=True, cwd=BASE_DIR)
-        subprocess.run(["git", "config", "user.name", "github-actions[bot]"],
-                        check=True, cwd=BASE_DIR)
-        subprocess.run(["git", "add", HISTORY_FILE], check=True, cwd=BASE_DIR)
-        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=BASE_DIR)
-        if diff.returncode == 0:
-            _rlog("[이력] 변경 사항 없음 — 커밋 생략")
-            return
-        subprocess.run(["git", "commit", "-m", f"chore: update history ({today.isoformat()})"],
-                        check=True, cwd=BASE_DIR)
-        subprocess.run(["git", "push"], check=True, cwd=BASE_DIR)
-        _rlog("[이력] 커밋 및 푸시 완료")
-    except subprocess.CalledProcessError as e:
-        _rlog(f"[이력] 커밋 실패: {e}")
+def commit_state(deps: ports.Deps, name: str, label: str, today: datetime.date):
+    """상태 파일 하나를 커밋·푸시한다.
+
+    이전에는 used_history/failure_history/shadow_review마다 같은 함수가
+    복사돼 있었다(커밋 메시지와 파일 경로만 달랐다). 절차가 바뀌면 세 곳을
+    모두 고쳐야 해서 어긋나기 쉬웠으므로 하나로 합쳤다."""
+    ok = deps.vcs.commit_and_push(
+        [deps.store.path_of(name)],
+        f"chore: update {label} ({today.isoformat()})",
+    )
+    if ok:
+        deps.log(f"[{label}] 커밋 및 푸시 완료")
 
 
-def commit_failure_history(today: datetime.date):
-    """실패 이력은 성공 이력과 별도 파일이라 커밋도 별도로 한다.
-    발송이 실패한 날에만 호출되므로, commit_history(성공 시 호출)와
-    같은 실행에서 동시에 불릴 일은 없다."""
-    if os.environ.get("GITHUB_ACTIONS") != "true":
-        _rlog("[실패이력] 로컬 실행 — git 커밋 생략 (파일만 저장됨)")
-        return
-    try:
-        subprocess.run(["git", "config", "user.email", "actions@github.com"],
-                        check=True, cwd=BASE_DIR)
-        subprocess.run(["git", "config", "user.name", "github-actions[bot]"],
-                        check=True, cwd=BASE_DIR)
-        subprocess.run(["git", "add", FAILURE_HISTORY_FILE], check=True, cwd=BASE_DIR)
-        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=BASE_DIR)
-        if diff.returncode == 0:
-            _rlog("[실패이력] 변경 사항 없음 — 커밋 생략")
-            return
-        subprocess.run(["git", "commit", "-m", f"chore: update failure history ({today.isoformat()})"],
-                        check=True, cwd=BASE_DIR)
-        subprocess.run(["git", "push"], check=True, cwd=BASE_DIR)
-        _rlog("[실패이력] 커밋 및 푸시 완료")
-    except subprocess.CalledProcessError as e:
-        _rlog(f"[실패이력] 커밋 실패: {e}")
-
-
-def commit_shadow_review(today: datetime.date):
-    """그림자 비교 기록은 발송 성공/실패와 무관하게 매 실행 후 커밋한다 —
-    불일치 사례는 발송 여부와 상관없이 관찰 데이터로서 가치가 있다."""
-    if os.environ.get("GITHUB_ACTIONS") != "true":
-        _rlog("[그림자비교] 로컬 실행 — git 커밋 생략 (파일만 저장됨)")
-        return
-    try:
-        subprocess.run(["git", "config", "user.email", "actions@github.com"],
-                        check=True, cwd=BASE_DIR)
-        subprocess.run(["git", "config", "user.name", "github-actions[bot]"],
-                        check=True, cwd=BASE_DIR)
-        subprocess.run(["git", "add", SHADOW_REVIEW_FILE], check=True, cwd=BASE_DIR)
-        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=BASE_DIR)
-        if diff.returncode == 0:
-            _rlog("[그림자비교] 변경 사항 없음 — 커밋 생략")
-            return
-        subprocess.run(["git", "commit", "-m", f"chore: update shadow review ({today.isoformat()})"],
-                        check=True, cwd=BASE_DIR)
-        subprocess.run(["git", "push"], check=True, cwd=BASE_DIR)
-        _rlog("[그림자비교] 커밋 및 푸시 완료")
-    except subprocess.CalledProcessError as e:
-        _rlog(f"[그림자비교] 커밋 실패: {e}")
-
-
-def send_weekly_shadow_report(review: dict, today: datetime.date):
+def send_weekly_shadow_report(deps: ports.Deps, review: dict, today: datetime.date):
     """매주 월요일에, human_label이 아직 null인 지난 7일 불일치 사례를 모아
     운영자에게 요약 메일을 보낸다. 라벨링(code_wrong/judge_wrong/ambiguous)은
     사람이 이 메일을 보고 shadow_review.json을 직접 고치거나, 다음 claude.ai
     대화에서 "이 리포트 라벨링해줘"로 위임하는 방식으로 처리한다."""
     if today.weekday() != 0:
         return
-    if not GMAIL_ADDRESS or not GMAIL_APP_PW:
-        _rlog("[주간리포트] 인증 정보 없음 — 발송 생략")
+    if not deps.secrets.can_send_mail():
+        deps.log("[주간리포트] 인증 정보 없음 — 발송 생략")
         return
     cutoff = today - datetime.timedelta(days=7)
     pending = [
@@ -1089,7 +927,7 @@ def send_weekly_shadow_report(review: dict, today: datetime.date):
         and datetime.date.fromisoformat(e["date"]) >= cutoff
     ]
     if not pending:
-        _rlog("[주간리포트] 지난주 미라벨링 불일치 없음 — 발송 생략")
+        deps.log("[주간리포트] 지난주 미라벨링 불일치 없음 — 발송 생략")
         return
     subject = f"[운영 알림] 판정 불일치 주간 리뷰 — {today.isoformat()}"
     lines = [
@@ -1102,57 +940,56 @@ def send_weekly_shadow_report(review: dict, today: datetime.date):
         lines.append(f"  코드 판정: {'통과' if e['code_ok'] else '실격'} / LLM 판정: {'통과' if e['judge_ok'] else '실격'}")
         lines.append(f"  지문 일부: {e['snippet']}")
         lines.append("")
-    body = "\n".join(lines)
-    try:
-        msg = MIMEText(body, "plain", "utf-8")
-        msg["From"] = GMAIL_ADDRESS
-        msg["To"] = GMAIL_ADDRESS
-        msg["Subject"] = subject
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(GMAIL_ADDRESS, GMAIL_APP_PW)
-            server.sendmail(GMAIL_ADDRESS, [GMAIL_ADDRESS], msg.as_string())
-        _rlog(f"[주간리포트] 발송 완료 → {_mask_email(GMAIL_ADDRESS)} ({len(pending)}건)")
-    except smtplib.SMTPException as e:
-        _rlog(f"[주간리포트] 발송 실패: {e}")
+    admin = deps.secrets.gmail_address
+    if deps.mailer.send(subject, _plain_to_html(lines), [admin]):
+        deps.log(f"[주간리포트] 발송 완료 → {_mask_email(admin)} ({len(pending)}건)")
+    else:
+        deps.log("[주간리포트] 발송 실패")
 
 
 # ── 실행 ──────────────────────────────────────────────
-def main() -> bool:
+def main(deps: ports.Deps) -> bool:
     """실행 성공 여부(bool)를 반환한다. 지문 생성 실패나 메일 발송 실패는
     False를 반환해서, 호출부가 워크플로 실패로 표시할 수 있게 한다.
     이전에는 실패해도 그냥 return만 해서 GitHub Actions가 '성공'으로
-    표시하는 바람에 발송 실패가 조용히 묻힌 적이 있었다."""
-    today = _send_date()
+    표시하는 바람에 발송 실패가 조용히 묻힌 적이 있었다.
+
+    deps를 인자로 받는 이유는 이 함수가 테스트 대상이기 때문이다. 운영에서는
+    __main__ 블록이 adapters.build_production_deps()로 실제 구현을 만들어
+    넘기고, 테스트는 가짜 구현을 넘겨 네트워크 없이 전 구간을 돌린다."""
+    today = _send_date(deps)
 
     # 주 5일(월~금) 발송. cron을 "0 11 * * 1-5"로 한정했지만 그것만으로는
     # workflow_dispatch로 주말에 돌렸을 때를 막지 못하고, cron 요일 필드가
     # 다시 넓어지면 조용히 주말 발송이 부활한다. 그래서 코드에도 가드를 둔다.
     # 수동 실행은 의도적으로 통과시킨다(주말에 한 편 더 받고 싶을 수 있다).
-    if today.weekday() >= 5 and not MANUAL_RUN:
-        _rlog(f"[중단] {today} 은 주말 — 주 5일 발송 정책에 따라 실행하지 않음")
+    if today.weekday() >= 5 and not deps.mode.manual:
+        deps.log(f"[중단] {today} 은 주말 — 주 5일 발송 정책에 따라 실행하지 않음")
         return True
 
-    category = pick_category(today)
-    history = load_history()
+    category = pick_category(deps, today)
+    history = load_history(deps)
 
-    topic, passage, patterns, attempts_log, shadow_log = generate_passage(category, history)
+    topic, passage, patterns, attempts_log, shadow_log = generate_passage(
+        deps, category, history)
 
     # 그림자 비교 기록은 발송 성공/실패와 무관하게 매 실행 후 저장·커밋한다.
-    shadow_review = load_shadow_review()
-    append_shadow_review(shadow_review, category["key"], shadow_log, today)
-    commit_shadow_review(today)
-    send_weekly_shadow_report(shadow_review, today)
+    shadow_review = load_shadow_review(deps)
+    append_shadow_review(deps, shadow_review, category["key"], shadow_log, today)
+    commit_state(deps, ports.SHADOW_REVIEW, "그림자비교", today)
+    send_weekly_shadow_report(deps, shadow_review, today)
 
     if not passage:
-        _rlog("[중단] 지문 생성 실패로 발송하지 않음")
-        fail_history = load_failure_history()
-        repeat_offenders = find_repeat_offenders(fail_history)
+        deps.log("[중단] 지문 생성 실패로 발송하지 않음")
+        fail_history = load_failure_history(deps)
+        repeat_offenders = find_repeat_offenders(deps, fail_history)
         if repeat_offenders:
-            _rlog(f"[실패이력] 반복 실패 문형 감지: {', '.join(repeat_offenders)}")
-        append_failure_history(fail_history, category["key"], attempts_log, today)
-        commit_failure_history(today)
+            deps.log(f"[실패이력] 반복 실패 문형 감지: {', '.join(repeat_offenders)}")
+        append_failure_history(deps, fail_history, category["key"], attempts_log, today)
+        commit_state(deps, ports.FAILURE_HISTORY, "실패이력", today)
         notify_admin_failure(
-            "지문 생성 4회 시도 전부 실패 (검증 조건 미충족)",
+            deps,
+            f"지문 생성 {deps.settings.max_gen_attempts}회 시도 전부 실패 (검증 조건 미충족)",
             attempts_log,
             repeat_offenders,
         )
@@ -1160,28 +997,31 @@ def main() -> bool:
 
     pdf_path = ""
     try:
-        pdf_path = build_pdf(today, topic, passage)
+        pdf_path = build_pdf(deps, today, topic, passage)
     except FileNotFoundError as e:
-        _rlog(f"[PDF] 생략: {e}")
+        deps.log(f"[PDF] 생략: {e}")
 
     html = build_html(today, topic, passage)
     subject = build_subject(today)
-    sent = send_mail(subject, html, pdf_path)
+    sent = send_mail(deps, subject, html, pdf_path)
 
     if sent:
-        if MANUAL_RUN:
-            _rlog("[이력] 수동 실행 — 이력 갱신 생략")
+        if deps.mode.manual:
+            deps.log("[이력] 수동 실행 — 이력 갱신 생략")
         else:
-            append_history(history, category["key"], patterns, today)
-            commit_history(today)
+            append_history(deps, history, category["key"], patterns, today)
+            commit_state(deps, ports.HISTORY, "이력", today)
         return True
 
-    _rlog("[이력] 발송 실패 — 이력 갱신하지 않음 (다음 실행에서 같은 후보 유지)")
-    notify_admin_failure("지문 생성은 성공했으나 메일 발송(SMTP) 단계에서 실패")
+    deps.log("[이력] 발송 실패 — 이력 갱신하지 않음 (다음 실행에서 같은 후보 유지)")
+    notify_admin_failure(deps, "지문 생성은 성공했으나 메일 발송(SMTP) 단계에서 실패")
     return False
 
 
 if __name__ == "__main__":
-    if not main():
-        _rlog("[종료] 실패 처리 — 워크플로를 실패(빨간 X)로 표시하기 위해 exit(1)")
+    import adapters   # 운영 구현은 진입점에서만 import한다(테스트는 가짜를 주입)
+
+    _deps = adapters.build_production_deps(BASE_DIR)
+    if not main(_deps):
+        _deps.log("[종료] 실패 처리 — 워크플로를 실패(빨간 X)로 표시하기 위해 exit(1)")
         sys.exit(1)
