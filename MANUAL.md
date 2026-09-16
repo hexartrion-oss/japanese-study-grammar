@@ -188,6 +188,15 @@
   상황은 정의상 후보가 얇아진 상태라 이 우회가 반드시 발동하고, 전체 풀로
   되돌리면 재선정이 가장 필요한 순간에만 골라서 무력화된다(2026-09-15 인용
   회차에서 재선정 조합이 직전과 3/5 겹쳐 `そうだ(様態)`가 유임됐다).
+- **`get_grammar.py`에 `os.environ`·`datetime.now`·`random`·`smtplib`·
+  `subprocess`를 직접 쓰지 않는다** — 필요한 기능은 `ports.py`에 포트로
+  선언하고 `adapters.py`에 구현한 뒤 `deps`로 주입받는다(README "왜
+  의존성을 주입하는가" 참고). 예전에는 실행 로그를 읽거나 함수 본문을
+  정규식으로 떼어내 `exec`해야만 동작을 확인할 수 있었고, 그 과정에서
+  `exclude_ids`가 쿨다운 우회 경로에서 버려지는 걸 한 번 놓쳤다. `deps`
+  없이 순수하게 텍스트만 변환하는 함수(`_check_*` 계열 등)까지 억지로
+  주입 형태로 바꾸지는 않는다 — 부작용이 있는 함수에만 `deps`를 붙여서,
+  시그니처 자체가 "이 함수는 바깥 세계를 건드린다"는 신호가 되게 한다.
 
 ---
 
@@ -211,7 +220,11 @@
 | 파일 | 역할 |
 |---|---|
 | `grammar_bank.py` | 문형 뱅크, 카테고리, 위험 표현 지침 |
-| `get_grammar.py` | 생성·검증·발송·실패 처리 전체 파이프라인 |
+| `ports.py` | 주입 대상 정의(Clock·Rng·Llm·Mailer·Store·Vcs·Fonts, Deps 컨테이너) |
+| `adapters.py` | 포트의 실제 구현 — 네트워크·SMTP·git·파일시스템은 여기서만 |
+| `get_grammar.py` | 생성·검증·발송·실패 처리 전체 파이프라인 (Deps를 주입받음) |
+| `tests/fakes.py` | 포트의 가짜 구현 — 테스트에서 네트워크 없이 파이프라인을 돌리기 위함 |
+| `tests/test_pipeline.py` | `python -m unittest discover -s tests`로 실행 |
 | `used_history.json` | 쿨다운용 사용 이력 (성공한 날만 갱신) |
 | `failure_history.json` | 실패 이력 (실패한 날만 갱신, 반복 경고 판정에 사용) |
 | `run_log.txt` | 매 실행의 상세 로그 (Actions 아티팩트로도 다운로드 가능) |

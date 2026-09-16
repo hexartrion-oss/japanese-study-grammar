@@ -367,8 +367,39 @@ Actions 목록에서 바로 보이고, 메일로도 알림이 온다.
 
 ```
 grammar_bank.py   표현 뱅크 (요일별 카테고리, 검증용 파서, 위험 표현 사용지침 포함)
-get_grammar.py    카테고리 선정 → 쿨다운 필터링 → 지문 생성 → 검증 → 발송 → 이력 커밋
+ports.py          주입 대상 정의 — Clock·Rng·Llm·Mailer·Store·Vcs·Fonts 인터페이스,
+                  Secrets/RunMode/Settings, 이 모두를 담는 Deps 컨테이너
+adapters.py       ports.py의 실제(운영) 구현 — 네트워크·SMTP·git·파일시스템은
+                  전부 여기서만 일어난다
+get_grammar.py    카테고리 선정 → 쿨다운 필터링 → 지문 생성 → 검증 → 발송 → 이력 커밋.
+                  Deps를 주입받아 동작하며, import만으로는 어떤 부작용도 없다
+tests/            fakes.py(가짜 포트 구현) + test_pipeline.py(전체 파이프라인 테스트)
 ```
+
+### 왜 의존성을 주입하는가
+
+`get_grammar.py`는 원래 환경변수·Gemini·SMTP·git을 모듈 최상단에서 직접 불렀다.
+동작을 확인하려면 실행 로그를 읽거나, 함수 본문을 정규식으로 떼어내 `exec`하는
+수밖에 없었다 — 2026-09-13 이후 수정분(`てしまう` 활용형, `exclude_ids`,
+`_send_date`, `らしい` 오탐)을 전부 그런 식으로 검증했고, 그 과정에서
+`exclude_ids`가 쿨다운 우회 경로에서 버려지는 걸 한 번 놓쳤다.
+
+지금은 파이프라인 함수들이 `deps: ports.Deps`를 인자로 받고, 실제 구현
+(`adapters.py`)과 가짜 구현(`tests/fakes.py`) 중 무엇을 넘기느냐로 운영과
+테스트가 갈린다. `tests/test_pipeline.py`는 네트워크 없이 `main()`을 끝까지
+돌리고, 위 세 실제 사고를 표준 테스트로 재현한다. 실행:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+새 코드를 수정할 때는 `get_grammar.py`에 `os.environ`·`datetime.now`·
+`random`·`smtplib`·`subprocess`를 직접 쓰지 않는다 — 필요한 기능은
+`ports.py`에 포트로 선언하고 `adapters.py`에 구현한다. `_check_*` 계열의
+순수 문자열 검증 함수처럼 부작용이 없는 함수는 `deps` 없이 그대로 둔다 —
+모든 함수에 `deps`를 붙이는 게 목적이 아니라, 부작용이 있는 함수에만
+붙여서 시그니처가 그 자체로 "이 함수는 바깥 세계를 건드린다"는 신호가
+되게 하는 것이 목적이다.
 
 ## 설정
 
