@@ -331,7 +331,7 @@ _VARIATION_WORDS = ["分かれる", "異なる", "変わる", "決まる", "次�
 _HARDSHIP_WORDS = [
     "結局", "無駄", "失敗", "後悔", "苦労", "疲れ", "諦め", "破綻", "叱られ", "怒られ", "台無し",
     "虚しい", "むなしい", "落胆", "報われ", "無意味", "徒労", "空回り", "骨折り損", "がっかり", "挫折",
-    "体調を崩す", "落ち込む",
+    "体調を崩す", "落ち込む", "迷惑",
 ]
 _CRITICAL_TONE_WORDS = [
     "文句", "批判", "生意気", "偉そう", "呆れ", "情けない", "許せない",
@@ -353,18 +353,55 @@ def _window_before(text: str, term: str, span: int = 8) -> str:
     return text[max(0, idx - span): idx]
 
 
+# 형태소 분석기는 생성 비용이 있어 모듈 전역에 하나만 둔다. そうだ(伝聞/様態
+# 구분)·らしい(존재 판정 보정)·아래 _contains_any(활용형 대응 어휘 매칭)가
+# 전부 이 인스턴스를 공유하므로 이름을 용도 중립으로 둔다.
+_tokenizer = Tokenizer()
+
+
+def _lemmatize(text: str) -> str:
+    """활용형을 사전형(base_form)으로 되돌린 텍스트. 검증용 어휘 매칭에서만
+    쓴다 — 발송되는 지문 자체는 건드리지 않는다.
+
+    2026-09-17 ばかりに 구조 검증에서 「落ち込んだ」가 목록의 사전형
+    「落ち込む」와 리터럴로 안 맞아 놓친 사례가 실제로 나왔다. Gemini는
+    활용형을 정확히 쓰는데, 검증 쪽이 사전형만 찾고 있었던 것이 원인이다.
+    てしまう(_TESHIMAU_RE)·らしい(_check_rashii)도 같은 뿌리의 문제였지만
+    그때그때 개별 대응했다 — 여기서는 동사/형용사 활용 전반을 한 번에
+    다룬다.
+
+    주의: しまう(치우다/보조동사)처럼 활용형만 보면 구분 안 되는 동형이의어가
+    존재한다(_check_sou_da·_check_rashii가 품사까지 보는 이유). 그래서
+    이 함수는 아래 _EXTRA_CHECKS의 단순 어휘 목록(명사·형용사·일반 동사,
+    동형이의어 위험 없음 확인됨) 매칭에만 쓴다 — _TESHIMAU_RE·_check_rashii·
+    Pattern.found_in()의 기본 매칭은 이번에 건드리지 않는다(별도 검토 필요)."""
+    return "".join(tok.base_form if tok.base_form != "*" else tok.surface
+                   for tok in _tokenizer.tokenize(text))
+
+
+def _contains_any(window: str, words: list) -> bool:
+    """window(원문 슬라이스) 안에 words 중 하나라도 있으면 True.
+    원문 그대로 먼저 보고(대부분의 어휘는 사전형 그대로 나온다), 없으면
+    활용형을 사전형으로 되돌린 버전도 본다 — 落ち込んだ처럼 활용된 채로
+    등장해 리터럴 매칭을 놓치는 경우를 잡기 위해서다."""
+    if any(w in window for w in words):
+        return True
+    lemma = _lemmatize(window)
+    return any(w in lemma for w in words)
+
+
 def _check_pair_negative(text: str, term: str) -> bool:
     """〜ないことには, 〜なくしては: 뒤에 부정형 결론이 와야 짝이 완성됨.
     ない/できない는 아주 흔한 단어라 창을 너무 넓히면 검증이 사실상 무의미해진다
     (아무 문장에나 ない가 하나쯤 있기 마련이라). 그래서 다른 검증보다 창을 좁게 유지한다."""
     window = _window_after(text, term, span=45)
-    return any(w in window for w in _NEG_RESULT_WORDS)
+    return _contains_any(window, _NEG_RESULT_WORDS)
 
 
 def _check_result_variation(text: str, term: str) -> bool:
     """〜いかんによって: 뒤에 결과가 갈린다는 서술이 와야 함."""
     window = _window_after(text, term, span=60)
-    return any(w in window for w in _VARIATION_WORDS)
+    return _contains_any(window, _VARIATION_WORDS)
 
 
 def _check_hardship_after(text: str, term: str) -> bool:
@@ -372,7 +409,7 @@ def _check_hardship_after(text: str, term: str) -> bool:
     상대적으로 특이한 단어들이라(ない처럼 아무 데나 나오지 않음), 창을
     넓혀도 오탐 위험이 크지 않다고 판단해 다른 검증보다 넓게 잡는다."""
     window = _window_after(text, term, span=70)
-    return any(w in window for w in _HARDSHIP_WORDS)
+    return _contains_any(window, _HARDSHIP_WORDS)
 
 
 def _check_critical_tone(text: str, term: str) -> bool:
@@ -384,13 +421,13 @@ def _check_critical_tone(text: str, term: str) -> bool:
     if idx == -1:
         return False
     window = text[max(0, idx - 20): idx + len(term) + 30]
-    return any(w in window for w in _CRITICAL_TONE_WORDS)
+    return _contains_any(window, _CRITICAL_TONE_WORDS)
 
 
 def _check_collocate_before(text: str, term: str, allowed: list) -> bool:
     """〜にかたくない, 〜を禁じ得ない: 앞에 정해진 어휘군이 와야 함."""
     before = _window_before(text, term)
-    return any(a in before for a in allowed)
+    return _contains_any(before, allowed)
 
 
 def _check_kirai_no_double_softening(text: str) -> bool:
@@ -418,11 +455,6 @@ def _check_kirai_no_double_softening(text: str) -> bool:
 #     な형용사 어간이 だ 없이 직접 접속 → 様態 (元気そうだ)
 # - 동형이의어(降り가 降る/降りる 중 어느 쪽으로 인식되든)는 두 경우 모두 活用形이
 #   "連用形"으로 같은 범주라 판정에 영향을 주지 않음을 확인했다.
-# 형태소 분석기는 생성 비용이 있어 모듈 전역에 하나만 둔다. そうだ 판별에서
-# 시작했지만 らしい 판별도 같은 인스턴스를 쓰므로 이름을 용도 중립으로 둔다.
-_tokenizer = Tokenizer()
-
-
 def _sou_da_prev_tokens(text: str) -> list:
     """지문에서 실제 伝聞/様態 조동사로 쓰인 'そう' 토큰들의 직전 토큰을 모아 반환한다.
     そう가 부사(그렇다/그렇게)로 쓰인 경우는 품사 필터로 걸러진다."""
