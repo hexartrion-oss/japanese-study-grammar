@@ -145,6 +145,44 @@ class RashiiPresenceCheckTests(unittest.TestCase):
                         "오탐 어휘와 정상 용법이 공존해도 정상 용법을 놓치면 안 된다")
 
 
+class LemmaAwareWordListTests(unittest.TestCase):
+    """2026-09-17 비즈니스 회차 사고 재현 — ばかりに 뒤의 부정적 결과어가
+    활용형(落ち込んだ)으로 등장하면 사전형(落ち込む) 리터럴 매칭이 놓쳤다.
+    _contains_any()가 원문과 활용형 복원 텍스트를 모두 보게 고친 뒤의
+    회귀·정착 확인."""
+
+    def test_real_failing_passage_now_passes(self):
+        # 실제 9/17 2차 시도 지문 일부
+        text = ("私は自分の絵の才能を過信していたばかりに、現実の厳しさに直面し、"
+                "ひどく落ち込んだ。友人にとっては慰めの言葉をかけるのが難しい状況"
+                "だっただろう。")
+        self.assertTrue(G._check_hardship_after(text, "ばかりに"),
+                        "活用形(落ち込んだ)도 잡아야 한다")
+
+    def test_vocabulary_gap_also_fixed(self):
+        # 실제 9/17 1차 시도 지문 일부 — 迷惑/苦い 자체가 목록에 없던 별건
+        text = ("準備を怠ったばかりに、チーム全体に多大な迷惑をかけてしまった"
+                "という苦い経験だ。")
+        self.assertTrue(G._check_hardship_after(text, "ばかりに"))
+
+    def test_dictionary_form_still_matches(self):
+        """회귀 — 활용형 대응을 넣기 전부터 통과하던 사전형 케이스."""
+        text = "苦労したあげく、結局失敗に終わった。"
+        self.assertTrue(G._check_hardship_after(text, "あげく"))
+
+    def test_positive_outcome_still_rejected(self):
+        """오탐 방지 — 부정적 결과어가 진짜 없으면 활용형 매칭을 넣어도
+        여전히 실격이어야 한다."""
+        text = "努力したばかりに、大きな成功を収めた。"
+        self.assertFalse(G._check_hardship_after(text, "ばかりに"))
+
+    def test_other_word_list_checks_also_gained_conjugation_matching(self):
+        """같은 구조(창+어휘 목록)를 쓰는 나머지 네 체크도 함께 고쳤다 —
+        결과 변화(いかんによって) 뒤에 과거형이 와도 잡혀야 한다."""
+        text = "結果は本人の努力いかんによって大きく変わった。"
+        self.assertTrue(G._check_result_variation(text, "いかんによって"))
+
+
 class EndToEndTests(unittest.TestCase):
     """main()을 처음부터 끝까지 네트워크 없이 돌린다."""
 
