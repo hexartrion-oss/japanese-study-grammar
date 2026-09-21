@@ -95,7 +95,7 @@ class ScriptedLlm:
 
     def generate(self, prompt: str, temperature: float,
                 model: str | None = None, max_output_tokens: int = 2200) -> str:
-        self.calls.append({"temperature": temperature, "model": model})
+        self.calls.append({"prompt": prompt, "temperature": temperature, "model": model})
         if model is not None:
             return self.judge_pass
         if self._i < len(self.responses):

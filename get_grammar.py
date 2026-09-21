@@ -229,7 +229,12 @@ def append_history(deps: ports.Deps, history: dict, category_key: str,
 
 
 # ── Gemini 호출 ────────────────────────────────────────
-def build_prompt(deps: ports.Deps, patterns: list, level_tag: str) -> str:
+def build_prompt(deps: ports.Deps, patterns: list, level_tag: str,
+                 missing: list = None) -> str:
+    """missing: 직전 시도에서 검증에 실패한 문형 id 목록. 같은 조합으로
+    재시도할 때만 넘긴다 — 조합을 바꾼 시도에 넘기면 이미 빠진 문형 얘기라
+    의미가 없다. 실패 사유를 알려줘야 Gemini가 다음 시도에서 정확한 형태
+    (활용형·규칙 7의 문체 등)로 고쳐 쓸 기회가 생긴다."""
     s_min = deps.settings.sentence_min
     s_max = deps.settings.sentence_max
     s_target = s_min + 2   # 하한 바로 위를 목표치로 제시한다
@@ -240,6 +245,12 @@ def build_prompt(deps: ports.Deps, patterns: list, level_tag: str) -> str:
         else:
             lines.append(f"- {p.id}")
     pattern_list = "\n".join(lines)
+    retry_note = ""
+    if missing:
+        retry_note = ("\n\n【前回の失敗】前回の生成では、以下の文型が正確な形で"
+                      "使われていなかった: " + "、".join(missing) + "。"
+                      "普通体(ルール7)から外れていないか、文型の形が正確か"
+                      "(例:〜ことができた、〜でもない)を特に確認しながら書き直すこと。")
     return f"""あなたは日本語で自然な読み物を書くライターです。対象レベルはJLPT {level_tag}です。
 
 【必ず使う文型】(必ず全部、それぞれ最低1回、自然な文脈で使うこと。【注意】が付いている文型は、その指示に厳密に従うこと)
@@ -252,8 +263,9 @@ def build_prompt(deps: ports.Deps, patterns: list, level_tag: str) -> str:
 4. 文章は一つのまとまった話として展開すること(起承転結や心情の変化があること)。バラバラな文を並べただけにしない。ただし、心情や登場人物への評価が変化する場合は、その変化を自然に繋ぐ描写を必ず入れること(例: 批判的な描写から好意的な描写に移る場合、その心境の転換点を一文入れる)。前半と後半で書き手の評価や感情のトーンが理由なく矛盾しないよう、書き終えた後に一度全体を読み返して確認すること
 5. 上に挙げた文型を全部、不自然にならない範囲で文章中に組み込む。ただし文数制限(ルール3)を破ってまで全部を無理に詰め込む必要はない。特に【注意】付きの文型は、指定された接続・文脈を外れると文法的に誤りになるため、必ず指示通りに使うこと
 6. 説明、翻訳、注釈、箇条書き、記号、マークダウンの装飾は一切書かない。特に「**」のような強調記号は絶対に使わない(文型を目立たせる目的で強調するのは厳禁)。読み物本文だけを、装飾のない平文で書く
-7. 暴力・犯罪・死亡・宗教・政治的に偏った内容は避ける
-8. 見出しは内容だけを表すこと(文法カテゴリーが分かるような単語は使わない)"""
+7. 文体は必ず「だ・である」体(普通体)で統一すること。「です・ます」体(丁寧体)は一切使わない
+8. 暴力・犯罪・死亡・宗教・政治的に偏った内容は避ける
+9. 見出しは内容だけを表すこと(文法カテゴリーが分かるような単語は使わない){retry_note}"""
 
 
 def _strip_markdown_decoration(text: str) -> str:
@@ -553,25 +565,28 @@ _EXTRA_CHECKS = {
 
 
 def validate_passage(deps: ports.Deps, passage: str, patterns: list):
-    """(통과 여부, 실패 사유) 튜플을 반환한다. 실패 사유는 사람이 읽고 바로
-    원인을 알 수 있는 짧은 문자열로, 실패 알림 메일에 그대로 실린다."""
+    """(통과 여부, 실패 사유, 문제 문형 id 목록) 튜플을 반환한다. 실패 사유는
+    사람이 읽고 바로 원인을 알 수 있는 짧은 문자열로, 실패 알림 메일에
+    그대로 실린다. 문형 id 목록은 재시도 시 프롬프트 피드백에 쓴다
+    (build_prompt의 missing 인자) — 문자열 reason을 다시 파싱하지 않도록
+    별도 값으로 낸다."""
     if not passage:
-        return False, "빈 지문(파싱 실패)"
+        return False, "빈 지문(파싱 실패)", []
     stripped = passage.rstrip()
     if not stripped.endswith("。"):
-        return False, "생성 중간에 잘림(마지막 문장이 완성되지 않음)"
+        return False, "생성 중간에 잘림(마지막 문장이 완성되지 않음)", []
     sentence_count = passage.count("。")
     s_min, s_max = deps.settings.sentence_min, deps.settings.sentence_max
     if not (s_min <= sentence_count <= s_max):
         reason = f"문장 수 {sentence_count}개 — 범위({s_min}~{s_max}) 벗어남"
         deps.log(f"[검증] {reason}")
-        return False, reason
+        return False, reason, []
     normalized = _normalize(passage)
     missing = [p.id for p in patterns if not _pattern_used(p, normalized)]
     if missing:
         reason = f"문형 누락: {', '.join(missing)}"
         deps.log(f"[검증] {reason}")
-        return False, reason
+        return False, reason, missing
     structural_fail = [
         p.id for p in patterns
         if p.id in _EXTRA_CHECKS and not _EXTRA_CHECKS[p.id](normalized)
@@ -579,8 +594,8 @@ def validate_passage(deps: ports.Deps, passage: str, patterns: list):
     if structural_fail:
         reason = f"구조 조건 미충족: {', '.join(structural_fail)}"
         deps.log(f"[검증] {reason}")
-        return False, reason
-    return True, ""
+        return False, reason, structural_fail
+    return True, "", []
 
 
 # ── 자연스러움 판정 (LLM 교차 검증) ───────────────────────────
@@ -682,6 +697,11 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict):
     temperatures = [0.7, 0.6, 0.4, 0.2]
     attempts_log = []  # 실패 알림 메일에 그대로 실릴 시도별 진단 정보
     shadow_log = []     # 코드 검증 vs LLM 판정 불일치 기록 (발송 여부에 영향 없음)
+    # 직전 시도가 실패한 문형 id — 같은 조합으로 재시도할 때만 build_prompt에
+    # 넘긴다. 무엇이 왜 빠졌는지 전혀 안 알려주고 새로 쓰게만 하면, 활용형·
+    # 문체 문제는 같은 방식으로 다시 틀릴 수 있다(2026-09-21 ことができました/
+    # でもなかった처럼 정중체로 써서 평서체 기준 검증을 놓친 사례).
+    retry_feedback = None
     for attempt in range(deps.settings.max_gen_attempts):
         if attempt == 2:
             # 두 번 실패하면 문형 조합 자체를 바꿔서 재시도. 직전 조합을
@@ -691,11 +711,13 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict):
             deps.log("[재시도] 문형 조합 교체")
             patterns = select_patterns(deps, category, history,
                                        exclude_ids={p.id for p in patterns})
-        prompt = build_prompt(deps, patterns, category["level_tag"])
+            retry_feedback = None  # 조합이 바뀌었으니 이전 피드백은 무의미하다
+        prompt = build_prompt(deps, patterns, category["level_tag"],
+                              missing=retry_feedback)
         raw = deps.llm.generate(prompt, temperatures[attempt])
         topic, passage = parse_gemini_output(raw)
-        ok, reason = (validate_passage(deps, passage, patterns) if passage
-                      else (False, "Gemini 출력 파싱 실패(--- 구분자 없음)"))
+        ok, reason, problem_ids = (validate_passage(deps, passage, patterns) if passage
+                                   else (False, "Gemini 출력 파싱 실패(--- 구분자 없음)", []))
 
         # 그림자 비교: validate_passage()의 통과/실패와 무관하게, 지문이 있으면
         # 항상 판정과 코드 검증을 나란히 실행해 불일치를 기록한다(재시도 여부에는
@@ -720,10 +742,12 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict):
             if failed:
                 ok = False
                 reason = "자연스러움 판정 실패: " + ", ".join(failed.keys())
+                problem_ids = list(failed.keys())
 
         if ok:
             deps.log(f"[생성] {attempt + 1}번째 시도에서 성공")
             return topic or "日本語の読み物", passage, patterns, attempts_log, shadow_log
+        retry_feedback = problem_ids or None
         # 실패 사유(문형 누락/구조 미충족/문장 수)는 validate_passage가 이미
         # 로그에 남기지만, 정작 원문이 없으면 "왜" 실패했는지 사후에 알 수 없다.
         # 그래서 실패한 시도마다 원문 전체를 로그에 같이 남기고, 실패 알림
