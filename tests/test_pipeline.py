@@ -128,6 +128,42 @@ class SelectPatternsExcludeIdsTests(unittest.TestCase):
         self.assertEqual(len(picked), 5)
 
 
+class LowStructureCapTests(unittest.TestCase):
+    """2026-09-23 강조·역접 3연패 확인 — さえ・こそ・すら・だって・までも・なんて・
+    だけに・ものの처럼 문장 구조를 강제하지 않는 짧은 조사류가 한 조합에 여러 개
+    겹치면 재시도 4회로도 다 못 피한다. 하루 최대 low_structure_cap(기본 2)개까지만
+    뽑히는지, 그리고 기존 결과강제(あげく 등) 제약이 그대로 살아있는지 확인한다."""
+
+    def test_full_pool_selection_respects_both_caps(self):
+        deps, _ = make_deps()
+        category = GB.CATEGORY_BY_KEY["강조·역접"]
+        picked = G.select_patterns(deps, category, history={"runs": []})
+        picked_ids = [p.id for p in picked]
+
+        self.assertEqual(len(picked), 5)
+        # FakeRng는 결정적(순서상 앞부터)이라 정확한 조합까지 고정해서 확인한다 —
+        # あげく(결과강제 1개) → さえ・こそ(저구조 위험군 상한 2개) → くせに・
+        # にもかかわらず(안전 문형으로 나머지 채움), 순서 그대로.
+        self.assertEqual(picked_ids, ["あげく", "さえ", "こそ", "くせに", "にもかかわらず"])
+
+        low_structure_picked = [pid for pid in picked_ids if pid in G._LOW_STRUCTURE_IDS]
+        self.assertLessEqual(len(low_structure_picked), 2,
+                             "저구조 위험군은 하루 최대 2개까지만 뽑혀야 한다")
+
+        result_forcing_picked = [pid for pid in picked_ids if pid in G._RESULT_FORCING_IDS]
+        self.assertEqual(len(result_forcing_picked), 1,
+                         "저구조 위험군 상한을 추가해도 기존 결과강제 제약은 유지돼야 한다")
+
+    def test_other_categories_unaffected(self):
+        """강조·역접 외 카테고리에는 _LOW_STRUCTURE_IDS와 겹치는 문형이 없으므로
+        선정 결과가 이전과 동일해야 한다 — 회귀 확인."""
+        deps, _ = make_deps()
+        category = GB.CATEGORY_BY_KEY["인용"]
+        picked = G.select_patterns(deps, category, history={"runs": []})
+        self.assertEqual(len(picked), 5)
+        self.assertFalse(any(p.id in G._LOW_STRUCTURE_IDS for p in picked))
+
+
 class RashiiPresenceCheckTests(unittest.TestCase):
     """2026-09-15 4차 지문 오탐 재현 — 「素晴らしい」가 문형 らしい로 잡혔다."""
 
@@ -225,6 +261,86 @@ class EndToEndTests(unittest.TestCase):
         ok = G.main(deps)
         self.assertFalse(ok)
         self.assertNotIn("used_history", fakes["store"].write_log)
+
+
+class BuildPromptRetryNoteTests(unittest.TestCase):
+    """2026-09-21 부사 회차 사고 — ことができました/でもなかった처럼 정중체로
+    쓰거나 활용형이 어긋나 재시도해도 같은 실수를 반복했다. 문체 고정(규칙7)과
+    실패 피드백(retry_note)이 프롬프트에 실제로 들어가는지 확인한다."""
+
+    def _deps(self):
+        deps, _ = make_deps()
+        return deps
+
+    def test_rule_seven_always_locks_style(self):
+        deps = self._deps()
+        patterns = [GB.Pattern("pat0")]
+        prompt = G.build_prompt(deps, patterns, "N3")
+        self.assertIn("だ・である", prompt)
+        self.assertIn("です・ます", prompt)
+
+    def test_no_retry_note_when_missing_is_none(self):
+        deps = self._deps()
+        patterns = [GB.Pattern("pat0")]
+        prompt = G.build_prompt(deps, patterns, "N3", missing=None)
+        self.assertNotIn("前回の失敗", prompt)
+
+    def test_retry_note_included_when_missing_given(self):
+        deps = self._deps()
+        patterns = [GB.Pattern("pat0")]
+        prompt = G.build_prompt(deps, patterns, "N3", missing=["ばかりに", "あげく"])
+        self.assertIn("前回の失敗", prompt)
+        self.assertIn("ばかりに", prompt)
+        self.assertIn("あげく", prompt)
+
+
+class GeneratePassageRetryFeedbackTests(unittest.TestCase):
+    """generate_passage()가 실패한 문형 id를 다음 시도의 build_prompt에
+    실제로 넘기는지, 그리고 2회 실패 후 문형 조합이 바뀌는 시점에는 직전
+    피드백을 버리는지(구 조합 얘기를 새 조합에 섞지 않기 위해) 확인한다."""
+
+    def _category(self, n: int = 10) -> dict:
+        return {
+            "key": "테스트",
+            "weekday": 0,
+            "level_tag": "N3",
+            "patterns": [GB.Pattern(f"pat{i}") for i in range(n)],
+        }
+
+    def test_retry_feedback_flows_to_next_attempt_and_resets_on_reselect(self):
+        # 1차: pat0~4 조합, pat4 누락 → 실패
+        resp1 = passage_text(["pat0", "pat1", "pat2", "pat3"], 12)
+        # 2차: 같은 조합, 여전히 pat4 누락 → 실패 (2연패로 3차에서 조합 교체 유발)
+        resp2 = passage_text(["pat0", "pat1", "pat2", "pat3"], 12)
+        # 3차: 조합 교체 후 pat5~9, pat9 누락 → 실패
+        resp3 = passage_text(["pat5", "pat6", "pat7", "pat8"], 12)
+        # 4차: 같은(교체된) 조합, 전부 포함 → 성공
+        resp4 = passage_text(["pat5", "pat6", "pat7", "pat8", "pat9"], 12)
+
+        deps, fakes = make_deps(llm_responses=[resp1, resp2, resp3, resp4])
+        topic, passage, patterns, attempts_log, shadow_log = G.generate_passage(
+            deps, self._category(), history={})
+
+        gen_calls = [c for c in fakes["llm"].calls if c["model"] is None]
+        self.assertEqual(len(gen_calls), 4)
+
+        # 1차 프롬프트: 직전 시도가 없으니 재시도 피드백이 없어야 한다
+        self.assertNotIn("前回の失敗", gen_calls[0]["prompt"])
+
+        # 2차 프롬프트: 같은 조합으로 재시도하므로 1차 실패(pat4 누락)를 알려줘야 한다
+        self.assertIn("前回の失敗", gen_calls[1]["prompt"])
+        self.assertIn("pat4", gen_calls[1]["prompt"])
+
+        # 3차 프롬프트: 조합이 바뀌었으니 pat4 얘기를 그대로 들고 오면 안 된다
+        self.assertNotIn("前回の失敗", gen_calls[2]["prompt"])
+
+        # 4차 프롬프트: 새 조합(pat5~9)에서도 직전 실패(pat9 누락)를 알려줘야 한다
+        self.assertIn("前回の失敗", gen_calls[3]["prompt"])
+        self.assertIn("pat9", gen_calls[3]["prompt"])
+
+        # 4차 시도가 최종적으로 성공해서 반환되어야 한다
+        self.assertIn("pat9", passage)
+        self.assertEqual({p.id for p in patterns}, {f"pat{i}" for i in range(5, 10)})
 
 
 def _full_passage(category_key: str, sentence_count: int = 12) -> str:
