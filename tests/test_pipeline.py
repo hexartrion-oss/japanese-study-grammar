@@ -128,6 +128,42 @@ class SelectPatternsExcludeIdsTests(unittest.TestCase):
         self.assertEqual(len(picked), 5)
 
 
+class LowStructureCapTests(unittest.TestCase):
+    """2026-09-23 강조·역접 3연패 확인 — さえ・こそ・すら・だって・までも・なんて・
+    だけに・ものの처럼 문장 구조를 강제하지 않는 짧은 조사류가 한 조합에 여러 개
+    겹치면 재시도 4회로도 다 못 피한다. 하루 최대 low_structure_cap(기본 2)개까지만
+    뽑히는지, 그리고 기존 결과강제(あげく 등) 제약이 그대로 살아있는지 확인한다."""
+
+    def test_full_pool_selection_respects_both_caps(self):
+        deps, _ = make_deps()
+        category = GB.CATEGORY_BY_KEY["강조·역접"]
+        picked = G.select_patterns(deps, category, history={"runs": []})
+        picked_ids = [p.id for p in picked]
+
+        self.assertEqual(len(picked), 5)
+        # FakeRng는 결정적(순서상 앞부터)이라 정확한 조합까지 고정해서 확인한다 —
+        # あげく(결과강제 1개) → さえ・こそ(저구조 위험군 상한 2개) → くせに・
+        # にもかかわらず(안전 문형으로 나머지 채움), 순서 그대로.
+        self.assertEqual(picked_ids, ["あげく", "さえ", "こそ", "くせに", "にもかかわらず"])
+
+        low_structure_picked = [pid for pid in picked_ids if pid in G._LOW_STRUCTURE_IDS]
+        self.assertLessEqual(len(low_structure_picked), 2,
+                             "저구조 위험군은 하루 최대 2개까지만 뽑혀야 한다")
+
+        result_forcing_picked = [pid for pid in picked_ids if pid in G._RESULT_FORCING_IDS]
+        self.assertEqual(len(result_forcing_picked), 1,
+                         "저구조 위험군 상한을 추가해도 기존 결과강제 제약은 유지돼야 한다")
+
+    def test_other_categories_unaffected(self):
+        """강조·역접 외 카테고리에는 _LOW_STRUCTURE_IDS와 겹치는 문형이 없으므로
+        선정 결과가 이전과 동일해야 한다 — 회귀 확인."""
+        deps, _ = make_deps()
+        category = GB.CATEGORY_BY_KEY["인용"]
+        picked = G.select_patterns(deps, category, history={"runs": []})
+        self.assertEqual(len(picked), 5)
+        self.assertFalse(any(p.id in G._LOW_STRUCTURE_IDS for p in picked))
+
+
 class RashiiPresenceCheckTests(unittest.TestCase):
     """2026-09-15 4차 지문 오탐 재현 — 「素晴らしい」가 문형 らしい로 잡혔다."""
 

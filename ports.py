@@ -74,6 +74,12 @@ class Settings:
     # MANUAL 4장 참고 — 이 마진을 0으로 되돌리지 않는다.
     cooldown_bypass_margin: int = 2
 
+    # 문장 구조를 강제하지 않는 짧은 조사류(_LOW_STRUCTURE_IDS, get_grammar.py)는
+    # 자연스럽게 쓰다가 통째로 누락되기 쉽다(2026-09-23 강조·역접 3연패 확인).
+    # 하루 조합에 이 부류가 몇 개나 섞여도 되는지의 상한 — README/MANUAL
+    # "강조·역접 저구조 위험군" 참고.
+    low_structure_cap: int = 2
+
     @property
     def cooldown_bypass_threshold(self) -> int:
         return self.patterns_per_day + self.cooldown_bypass_margin

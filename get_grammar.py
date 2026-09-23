@@ -172,6 +172,13 @@ def recently_used(deps: ports.Deps, history: dict, category_key: str) -> set:
 # なくしては+いかんによって 조합에서 확인됨). 그래서 하루에 최대 1개만 뽑는다.
 _RESULT_FORCING_IDS = {"あげく", "ばかりに", "ないことには", "なくしては", "いかんによって"}
 
+# 문장 구조를 강제하지 않는 짧은 강조·양보 조사류. 결합 범위가 넓어 자연스럽게
+# 쓰다가 그대로 빠뜨리기 쉽다 — 2026-09-9·9-16·9-23 강조·역접 3연패에서 실제로
+# 누락으로 걸린 문형 전부(README "강조·역접 저구조 위험군" 참고). 한 조합에
+# 여러 개가 겹치면 재시도 4회로도 다 못 피하므로, 하루 최대
+# settings.low_structure_cap개까지만 뽑는다.
+_LOW_STRUCTURE_IDS = {"さえ", "こそ", "すら", "だって", "までも", "なんて", "だけに", "ものの"}
+
 
 def select_patterns(deps: ports.Deps, category: dict, history: dict,
                     exclude_ids=None) -> list:
@@ -197,17 +204,30 @@ def select_patterns(deps: ports.Deps, category: dict, history: dict,
         candidates = relaxed
 
     constrained = [p for p in candidates if p.id in _RESULT_FORCING_IDS]
-    free = [p for p in candidates if p.id not in _RESULT_FORCING_IDS]
+    low_structure = [p for p in candidates if p.id in _LOW_STRUCTURE_IDS]
+    free = [p for p in candidates
+            if p.id not in _RESULT_FORCING_IDS and p.id not in _LOW_STRUCTURE_IDS]
 
     picked = []
     if constrained:
         picked.append(deps.rng.choice(constrained))
+
+    # 저구조 위험군은 상한(기본 2개)까지만 우선 채운다. 위험군 자체가 모자라거나
+    # 이미 남은 자리가 상한보다 적으면 그만큼만 뽑는다.
+    low_pick_n = min(deps.settings.low_structure_cap, len(low_structure),
+                     deps.settings.patterns_per_day - len(picked))
+    if low_pick_n > 0:
+        picked += deps.rng.sample(low_structure, low_pick_n)
+
     remaining = deps.settings.patterns_per_day - len(picked)
-    if len(free) >= remaining:
-        picked += deps.rng.sample(free, remaining)
+    # 안전 문형(free)이 부족하면 상한을 넘겨서라도 남은 위험군으로 채운다 —
+    # 5개를 못 채우는 것보다는 위험군이 조금 더 섞이는 쪽이 낫다.
+    fallback_pool = free + [p for p in low_structure if p not in picked]
+    if len(fallback_pool) >= remaining:
+        picked += deps.rng.sample(fallback_pool, remaining)
     else:
-        # free 풀이 부족한 예외적 경우 — constrained에서 마저 채움(모자란 만큼만)
-        picked += free
+        # free/저구조 풀이 다 모자란 예외적 경우 — constrained에서 마저 채움
+        picked += fallback_pool
         leftover = [p for p in constrained if p not in picked]
         picked += deps.rng.sample(
             leftover, min(deps.settings.patterns_per_day - len(picked), len(leftover)))
