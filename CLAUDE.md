@@ -38,3 +38,11 @@ Claude Code가 이 리포에서 세션을 열 때마다 자동으로 읽는 파�
   normalization-pf1syf, A+G 문체고정·재시도피드백과 같은 브랜치)에 커밋
   6352654로 포함됨. 아직 머지 대기 중 — 다음 정규 실행(수요일)에서 실제
   개선 여부 확인 필요.
+- [2026-10-02] github.com에서 fine-grained PAT "japanese-study-grammar-claude"
+  (이 리포 전용, 코드 읽기/쓰기 권한, 2026-09-09 생성) 만료 임박 메일을 받고
+  사용자가 재발급 후 삭제함. 검토 결과 이 토큰은 리포(GitHub Actions 시크릿
+  GMAIL_ADDRESS/GMAIL_APP_PASSWORD/GEMINI_API_KEY/EMAIL_RECIPIENTS 외 참조
+  없음), 코드베이스, Claude GitHub App 커넥터, 이 세션의 git 인증(하네스가
+  별도 관리하는 GH_TOKEN/GITHUB_TOKEN) 어디에도 쓰이지 않는 것으로 확인됨 —
+  정기 실행(9/24~10/1 전부 success)과 Claude 연결 모두 삭제와 무관하게 정상
+  동작. 용도 불명인 채로 삭제됐으며, 삭제로 인한 영향 없음.
