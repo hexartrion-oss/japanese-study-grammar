@@ -138,21 +138,33 @@ def append_shadow_review(deps: ports.Deps, review: dict, category_key: str,
     deps.store.write(ports.SHADOW_REVIEW, review)
 
 
+def _pattern_fail_counts(fail_history: dict, window: int | None = None) -> dict:
+    """실패 이력에서 문형별로 "그 문형이 실패에 관여한 날짜 수"를 센다.
+    같은 날 같은 문형은 시도 횟수(최대 4회)와 무관하게 한 번만 카운트한다
+    — 안 그러면 한 번의 반복 실패가 최대 4배로 부풀려진다. window를 주면
+    최근 N회 실행만 보고, None이면 전체 누적을 본다(monthly_report.py의
+    누적 통계가 window=None으로 이 함수를 그대로 재사용한다)."""
+    runs = fail_history.get("runs", [])
+    if window is not None:
+        runs = runs[-window:]
+    counts = {}
+    for run in runs:
+        seen_today = set()
+        for f in run.get("failures", []):
+            pid = f["pattern"]
+            if pid in seen_today:
+                continue
+            seen_today.add(pid)
+            counts[pid] = counts.get(pid, 0) + 1
+    return counts
+
+
 def find_repeat_offenders(deps: ports.Deps, fail_history: dict) -> list:
     """최근 settings.failure_repeat_window회의 실패 기록 안에서, 특정 문형이
     settings.failure_repeat_threshold회 이상 등장했으면 "반복 실패"로 판정한다.
     문형이 실제로 실패에 관여했다는 것만 셀 뿐, 매번 같은 사유인지는
     구분하지 않는다 — 사유가 달라도 그 문형이 계속 말썽이라는 신호는 유효하다."""
-    recent_runs = fail_history.get("runs", [])[-deps.settings.failure_repeat_window:]
-    counts = {}
-    for run in recent_runs:
-        seen_today = set()
-        for f in run.get("failures", []):
-            pid = f["pattern"]
-            if pid in seen_today:
-                continue  # 같은 날 같은 문형은 한 번만 카운트(시도 4번 다 중복 집계 방지)
-            seen_today.add(pid)
-            counts[pid] = counts.get(pid, 0) + 1
+    counts = _pattern_fail_counts(fail_history, window=deps.settings.failure_repeat_window)
     return [pid for pid, c in counts.items()
             if c >= deps.settings.failure_repeat_threshold]
 

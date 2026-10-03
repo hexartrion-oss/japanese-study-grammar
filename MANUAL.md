@@ -135,6 +135,15 @@
 - **결과 강제 문형(あげく·ばかりに·ないことには·なくしては·いかんによって) 5개는 하루
   최대 1개만 뽑히도록 고정되어 있다** — 이 로직을 건드리면 문장 수 실패율이 다시
   올라갈 수 있다(실제로 겪었던 문제).
+- **`monthly_report.py`의 요일별 통계는 `_is_real_weekday_match()`로 걸러낸
+  실행만 센다** — 필터를 빼면 `FORCE_CATEGORY`로 임의 요일에 돌린 수동 실행이
+  그 요일의 실패율을 왜곡한다(2026-09-13 일요일 `부사` 수동 실행 사례). 카테고리별
+  통계는 반대로 필터링하지 않는다 — 그쪽은 수동 실행도 그 카테고리의 실제
+  신호이기 때문이다. 두 통계의 필터링 기준이 다른 건 의도된 설계지 실수가
+  아니다.
+- **`_pattern_fail_counts()`의 `window=None`(전체 누적)은 `find_repeat_offenders()`의
+  `window=settings.failure_repeat_window`(최근 5회)와 다른 용도다** — 월간
+  리포트용 누적 집계를 반복 경고 임계값 계산에 섞어 쓰지 않는다.
 - **강조·역접의 저구조 위험군(さえ·こそ·すら·だって·までも·なんて·だけに·ものの) 8개는
   하루 최대 `settings.low_structure_cap`(기본 2)개까지만 뽑히도록 제한돼 있다** —
   2026-09-9·9-16·9-23 강조·역접 3연패의 실제 원인이었다(문장 구조를 강제하지 않는
@@ -256,10 +265,14 @@
 | `ports.py` | 주입 대상 정의(Clock·Rng·Llm·Mailer·Store·Vcs·Fonts, Deps 컨테이너) |
 | `adapters.py` | 포트의 실제 구현 — 네트워크·SMTP·git·파일시스템은 여기서만 |
 | `get_grammar.py` | 생성·검증·발송·실패 처리 전체 파이프라인 (Deps를 주입받음) |
+| `monthly_report.py` | 월간 누적 실패 통계 리포트(집계·차트·메일) — get_grammar.py와 별도 모듈 |
 | `tests/fakes.py` | 포트의 가짜 구현 — 테스트에서 네트워크 없이 파이프라인을 돌리기 위함 |
 | `tests/test_pipeline.py` | `python -m unittest discover -s tests`로 실행 |
+| `tests/test_monthly_report.py` | monthly_report.py 전용 테스트 |
 | `used_history.json` | 쿨다운용 사용 이력 (성공한 날만 갱신) |
-| `failure_history.json` | 실패 이력 (실패한 날만 갱신, 반복 경고 판정에 사용) |
+| `failure_history.json` | 실패 이력 (실패한 날만 갱신, 반복 경고 판정·월간 리포트에 사용) |
 | `run_log.txt` | 매 실행의 상세 로그 (Actions 아티팩트로도 다운로드 가능) |
+| `.github/workflows/daily.yml` | 평일 지문 생성·발송 (cron) |
+| `.github/workflows/monthly_report.yml` | 매월 1일 누적 실패 통계 리포트 발송 (cron) |
 | `README.md` | 설계 배경, 왜 이렇게 만들었는지에 대한 상세 기록 |
 | `MANUAL.md` | 이 문서 — 문제 발생 시 즉시 참고할 실전 절차 |
