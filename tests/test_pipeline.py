@@ -141,18 +141,51 @@ class LowStructureCapTests(unittest.TestCase):
         picked_ids = [p.id for p in picked]
 
         self.assertEqual(len(picked), 5)
-        # FakeRng는 결정적(순서상 앞부터)이라 정확한 조합까지 고정해서 확인한다 —
-        # あげく(결과강제 1개) → さえ・こそ(저구조 위험군 상한 2개) → くせに・
-        # にもかかわらず(안전 문형으로 나머지 채움), 순서 그대로.
-        self.assertEqual(picked_ids, ["あげく", "さえ", "こそ", "くせに", "にもかかわらず"])
+        # FakeRng는 결정적(풀 앞에서부터)이라 정확한 조합까지 고정해서 확인한다.
+        # 이 테스트만으로는 상한이 지켜지는지 증명되지 못한다(FakeRng는 항상
+        # 안전 문형부터 집으므로) — 실제 무작위 분포는 아래 테스트가 본다.
+        self.assertEqual(picked_ids, ["あげく", "くせに", "にもかかわらず", "つつも", "ながらも"])
 
-        low_structure_picked = [pid for pid in picked_ids if pid in G._LOW_STRUCTURE_IDS]
-        self.assertLessEqual(len(low_structure_picked), 2,
-                             "저구조 위험군은 하루 최대 2개까지만 뽑혀야 한다")
+    def test_cap_holds_under_real_randomness(self):
+        """2026-10-03 발견 — 처음 구현은 FakeRng 테스트는 통과했지만 실제
+        무작위에서는 위험군이 3~4개(73%)까지 뽑혔다(2026-09-30 강조·역접
+        성공 조합에도 さえ・すら・こそ 3개가 들어 있었다). 시드를 바꿔가며
+        많이 뽑아 상한이 정말 상한인지 본다."""
+        import random
 
-        result_forcing_picked = [pid for pid in picked_ids if pid in G._RESULT_FORCING_IDS]
-        self.assertEqual(len(result_forcing_picked), 1,
-                         "저구조 위험군 상한을 추가해도 기존 결과강제 제약은 유지돼야 한다")
+        class SeededRng:
+            def __init__(self, seed):
+                self._r = random.Random(seed)
+
+            def choice(self, seq):
+                return self._r.choice(list(seq))
+
+            def sample(self, population, k):
+                return self._r.sample(list(population), k)
+
+        category = GB.CATEGORY_BY_KEY["강조·역접"]
+        max_low = 0
+        for seed in range(2000):
+            deps, _ = make_deps()
+            object.__setattr__(deps, "rng", SeededRng(seed))
+            picked = G.select_patterns(deps, category, history={"runs": []})
+            ids = [p.id for p in picked]
+            self.assertEqual(len(set(ids)), 5, "중복 없이 5개여야 한다")
+            self.assertEqual(
+                sum(1 for i in ids if i in G._RESULT_FORCING_IDS), 1,
+                "결과 강제 문형은 정확히 1개(강조·역접은 あげく뿐이라 항상 포함)")
+            max_low = max(max_low, sum(1 for i in ids if i in G._LOW_STRUCTURE_IDS))
+        self.assertLessEqual(max_low, 2, "저구조 위험군은 하루 최대 2개")
+
+    def test_cap_relaxes_only_when_safe_patterns_run_out(self):
+        """안전 문형이 모자라면 상한을 넘겨서라도 5개를 채운다(못 채우는 것보다
+        낫다). 후보를 위험군 위주로 좁혀 그 경로를 직접 태운다."""
+        deps, _ = make_deps()
+        low_ids = sorted(G._LOW_STRUCTURE_IDS)[:6]
+        category = {"key": "테스트", "weekday": 2, "level_tag": "N3",
+                    "patterns": [GB.Pattern(i) for i in low_ids] + [GB.Pattern("free0")]}
+        picked = G.select_patterns(deps, category, history={"runs": []})
+        self.assertEqual(len(picked), 5)
 
     def test_other_categories_unaffected(self):
         """강조·역접 외 카테고리에는 _LOW_STRUCTURE_IDS와 겹치는 문형이 없으므로

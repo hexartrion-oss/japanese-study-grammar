@@ -224,25 +224,29 @@ def select_patterns(deps: ports.Deps, category: dict, history: dict,
     if constrained:
         picked.append(deps.rng.choice(constrained))
 
-    # 저구조 위험군은 상한(기본 2개)까지만 우선 채운다. 위험군 자체가 모자라거나
-    # 이미 남은 자리가 상한보다 적으면 그만큼만 뽑는다.
-    low_pick_n = min(deps.settings.low_structure_cap, len(low_structure),
-                     deps.settings.patterns_per_day - len(picked))
-    if low_pick_n > 0:
-        picked += deps.rng.sample(low_structure, low_pick_n)
-
-    remaining = deps.settings.patterns_per_day - len(picked)
-    # 안전 문형(free)이 부족하면 상한을 넘겨서라도 남은 위험군으로 채운다 —
-    # 5개를 못 채우는 것보다는 위험군이 조금 더 섞이는 쪽이 낫다.
-    fallback_pool = free + [p for p in low_structure if p not in picked]
-    if len(fallback_pool) >= remaining:
-        picked += deps.rng.sample(fallback_pool, remaining)
+    # 남은 자리는 안전 문형과 저구조 위험군을 한 풀에서 무작위로 뽑는다. 다만
+    # 위험군이 상한(low_structure_cap)을 넘으면 넘친 만큼을 아직 안 뽑힌 안전
+    # 문형으로 바꿔치기한다. (처음 구현은 위험군을 상한만큼 먼저 뽑은 뒤 나머지를
+    # "안전+남은 위험군" 풀에서 또 뽑아서 상한이 하한이 돼버렸다 — 실측 분포가
+    # 2개 27%/3개 53%/4개 20%로, 상한 없던 때(평균 2.14)보다 오히려 늘었다.)
+    slots = deps.settings.patterns_per_day - len(picked)
+    rest_pool = free + low_structure
+    if len(rest_pool) >= slots:
+        rest = deps.rng.sample(rest_pool, slots)
+        low_in = [p for p in rest if p.id in _LOW_STRUCTURE_IDS]
+        spare_free = [p for p in free if p not in rest]
+        # 안전 문형이 바닥나면 상한을 넘겨서라도 둔다 — 5개를 못 채우는 것보다 낫다.
+        n_swap = min(len(low_in) - deps.settings.low_structure_cap, len(spare_free))
+        if n_swap > 0:
+            drop = deps.rng.sample(low_in, n_swap)
+            add = deps.rng.sample(spare_free, n_swap)
+            rest = [p for p in rest if p not in drop] + add
+        picked += rest
     else:
-        # free/저구조 풀이 다 모자란 예외적 경우 — constrained에서 마저 채움
-        picked += fallback_pool
+        # 안전+위험군 풀이 다 모자란 예외적 경우 — constrained에서 마저 채움
+        picked += rest_pool
         leftover = [p for p in constrained if p not in picked]
-        picked += deps.rng.sample(
-            leftover, min(deps.settings.patterns_per_day - len(picked), len(leftover)))
+        picked += deps.rng.sample(leftover, min(slots - len(rest_pool), len(leftover)))
 
     deps.log(f"[문형] 선택됨: {', '.join(p.id for p in picked)}")
     return picked
