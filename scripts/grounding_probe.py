@@ -48,6 +48,40 @@ PROBES = [
      "同じ用法である。"),
 ]
 
+
+# 문장 단위 프로브: 코드 규칙이 오탈락시킨 자연스러운 문장 / 비문. 기대 라벨은 내 독서 기준이며
+# 확정 정답이 아니다("保留"는 집계에서 제외).
+SENTENCES = [
+    ("あげく", "自然", "言い争ったあげく、彼は怒って帰ってしまった。"),
+    ("あげく", "自然", "長時間待たされたあげく、断られた。"),
+    ("ばかりに", "自然", "彼を信じたばかりに、大損をした。"),
+    ("ばかりに", "自然", "準備を怠ったばかりに、試験に落ちた。"),
+    ("を禁じ得ない", "自然", "事件の経緯に疑問を禁じ得ない。"),
+    ("を禁じ得ない", "自然", "被害者に同情を禁じ得ない。"),
+    ("くせに", "自然", "知っているくせに、教えてくれなかった。"),
+    ("にかたくない", "自然", "彼の苦労は予想に難くない。"),
+    ("いかんによって", "自然", "結果のいかんによっては、計画を変更する。"),
+    ("あげく", "不自然", "さんざん悩んだあげく、見事に成功した。"),
+    ("を禁じ得ない", "不自然", "彼の決断を禁じ得ない。"),
+    ("ばかりに", "不自然", "自分の意見ばかりに固執して、周囲の助言を聞かなかった。"),
+    ("あげく", "不自然", "様々な困難にあげく、無事に帰国できた。"),
+    ("いかんによって", "保留", "このまま進むべきかいかんによって、行程が大きく変わる。"),
+]
+
+SENT_PROMPT = """次の文が、文型「{pattern}」の用法として文法的に正しく自然かどうかを、Google検索で調べて判定してください。
+参照してよい出典は、学位論文・学術論文・新聞記事・新聞の寄稿やコラムに限ります。
+日本語学習サイト、ブログ、Q&Aサイト、SNS、学習者向けの辞書サイトは参照しないでください。
+適切な出典が見つからない場合は「不明」としてください。
+
+【文】
+{sentence}
+
+出力は次の3行だけにしてください。
+判定: 自然 または 不自然 または 不明
+根拠: (60字以内)
+出典種別: 論文 または 記事 または 寄稿 または なし
+"""
+
 PROMPT = """次の日本語文法に関する主張が正しいかどうか、Google検索で調べて判定してください。
 参照してよい出典は、学位論文・学術論文・新聞記事・新聞の寄稿やコラムに限ります。
 日本語学習サイト、ブログ、Q&Aサイト、SNS、学習者向けの辞書サイトは参照しないでください。
@@ -111,13 +145,14 @@ def parse_verdict(text: str) -> dict:
     return {"verdict": grab("判定"), "basis": grab("根拠"), "src_type": grab("出典種別")}
 
 
-def call(client, types, model, claim):
+def call(client, types, model, prompt):
     cfg = types.GenerateContentConfig(
         temperature=0.0,
         tools=[types.Tool(google_search=types.GoogleSearch())],
+        http_options=types.HttpOptions(timeout=120_000),   # ms — 한 호출이 영원히 매달리지 않게
     )
     t0 = time.time()
-    res = client.models.generate_content(model=model, contents=PROMPT.format(claim=claim), config=cfg)
+    res = client.models.generate_content(model=model, contents=prompt, config=cfg)
     return res, time.time() - t0
 
 
@@ -131,13 +166,19 @@ def main() -> int:
 
     client = genai.Client(api_key=key)
     repeat = int(os.environ.get("PROBE_REPEAT", "2"))
+    models = [m for m in os.environ.get("PROBE_MODELS", ",".join(MODELS)).split(",") if m]
+    if os.environ.get("PROBE_MODE", "rules") == "sentences":
+        items = [(f"{pat}:{sen[:14]}", exp, SENT_PROMPT.format(pattern=pat, sentence=sen))
+                 for pat, exp, sen in SENTENCES]
+    else:
+        items = [(pid, exp, PROMPT.format(claim=claim)) for pid, exp, claim in PROBES]
     rows = []
-    for model in MODELS:
-        for pid, expected, claim in PROBES:
+    for model in models:
+        for pid, expected, prompt in items:
             for run in range(repeat):
                 row = {"model": model, "probe": pid, "expected": expected, "run": run + 1}
                 try:
-                    res, dt = call(client, types, model, claim)
+                    res, dt = call(client, types, model, prompt)
                     text = res.text or ""
                     ex = extract_sources(res)
                     um = getattr(res, "usage_metadata", None)
@@ -160,12 +201,13 @@ def main() -> int:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
     print("\n===== 요약 =====")
-    for model in MODELS:
+    for model in models:
         mine = [r for r in rows if r["model"] == model]
         ok = [r for r in mine if r["ok"]]
         grounded = [r for r in ok if r["n_sources"] > 0]
         qualified = [r for r in ok if r["n_qualified"] >= 2]
-        agree = [r for r in ok if r["verdict"] and r["expected"] in r["verdict"]]
+        agree = [r for r in ok if r["verdict"] and r["expected"] in r["verdict"]
+                 and not (r["expected"] == "自然" and "不自然" in r["verdict"])]
         unknown = [r for r in ok if "不明" in r["verdict"]]
         avg_dt = sum(r["latency_s"] for r in ok) / len(ok) if ok else 0
         print(f"[{model}] 호출 {len(mine)} / 성공 {len(ok)} / 출처 있음 {len(grounded)} / "
