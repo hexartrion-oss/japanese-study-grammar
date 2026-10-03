@@ -3,3 +3,4 @@ google-genai>=1.0.0
 python-dotenv>=1.0.0
 janome>=0.5.0
 tzdata>=2024.1
+matplotlib>=3.8.0

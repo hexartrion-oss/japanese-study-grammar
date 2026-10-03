@@ -138,21 +138,33 @@ def append_shadow_review(deps: ports.Deps, review: dict, category_key: str,
     deps.store.write(ports.SHADOW_REVIEW, review)
 
 
+def _pattern_fail_counts(fail_history: dict, window: int | None = None) -> dict:
+    """실패 이력에서 문형별로 "그 문형이 실패에 관여한 날짜 수"를 센다.
+    같은 날 같은 문형은 시도 횟수(최대 4회)와 무관하게 한 번만 카운트한다
+    — 안 그러면 한 번의 반복 실패가 최대 4배로 부풀려진다. window를 주면
+    최근 N회 실행만 보고, None이면 전체 누적을 본다(monthly_report.py의
+    누적 통계가 window=None으로 이 함수를 그대로 재사용한다)."""
+    runs = fail_history.get("runs", [])
+    if window is not None:
+        runs = runs[-window:]
+    counts = {}
+    for run in runs:
+        seen_today = set()
+        for f in run.get("failures", []):
+            pid = f["pattern"]
+            if pid in seen_today:
+                continue
+            seen_today.add(pid)
+            counts[pid] = counts.get(pid, 0) + 1
+    return counts
+
+
 def find_repeat_offenders(deps: ports.Deps, fail_history: dict) -> list:
     """최근 settings.failure_repeat_window회의 실패 기록 안에서, 특정 문형이
     settings.failure_repeat_threshold회 이상 등장했으면 "반복 실패"로 판정한다.
     문형이 실제로 실패에 관여했다는 것만 셀 뿐, 매번 같은 사유인지는
     구분하지 않는다 — 사유가 달라도 그 문형이 계속 말썽이라는 신호는 유효하다."""
-    recent_runs = fail_history.get("runs", [])[-deps.settings.failure_repeat_window:]
-    counts = {}
-    for run in recent_runs:
-        seen_today = set()
-        for f in run.get("failures", []):
-            pid = f["pattern"]
-            if pid in seen_today:
-                continue  # 같은 날 같은 문형은 한 번만 카운트(시도 4번 다 중복 집계 방지)
-            seen_today.add(pid)
-            counts[pid] = counts.get(pid, 0) + 1
+    counts = _pattern_fail_counts(fail_history, window=deps.settings.failure_repeat_window)
     return [pid for pid, c in counts.items()
             if c >= deps.settings.failure_repeat_threshold]
 
@@ -212,25 +224,29 @@ def select_patterns(deps: ports.Deps, category: dict, history: dict,
     if constrained:
         picked.append(deps.rng.choice(constrained))
 
-    # 저구조 위험군은 상한(기본 2개)까지만 우선 채운다. 위험군 자체가 모자라거나
-    # 이미 남은 자리가 상한보다 적으면 그만큼만 뽑는다.
-    low_pick_n = min(deps.settings.low_structure_cap, len(low_structure),
-                     deps.settings.patterns_per_day - len(picked))
-    if low_pick_n > 0:
-        picked += deps.rng.sample(low_structure, low_pick_n)
-
-    remaining = deps.settings.patterns_per_day - len(picked)
-    # 안전 문형(free)이 부족하면 상한을 넘겨서라도 남은 위험군으로 채운다 —
-    # 5개를 못 채우는 것보다는 위험군이 조금 더 섞이는 쪽이 낫다.
-    fallback_pool = free + [p for p in low_structure if p not in picked]
-    if len(fallback_pool) >= remaining:
-        picked += deps.rng.sample(fallback_pool, remaining)
+    # 남은 자리는 안전 문형과 저구조 위험군을 한 풀에서 무작위로 뽑는다. 다만
+    # 위험군이 상한(low_structure_cap)을 넘으면 넘친 만큼을 아직 안 뽑힌 안전
+    # 문형으로 바꿔치기한다. (처음 구현은 위험군을 상한만큼 먼저 뽑은 뒤 나머지를
+    # "안전+남은 위험군" 풀에서 또 뽑아서 상한이 하한이 돼버렸다 — 실측 분포가
+    # 2개 27%/3개 53%/4개 20%로, 상한 없던 때(평균 2.14)보다 오히려 늘었다.)
+    slots = deps.settings.patterns_per_day - len(picked)
+    rest_pool = free + low_structure
+    if len(rest_pool) >= slots:
+        rest = deps.rng.sample(rest_pool, slots)
+        low_in = [p for p in rest if p.id in _LOW_STRUCTURE_IDS]
+        spare_free = [p for p in free if p not in rest]
+        # 안전 문형이 바닥나면 상한을 넘겨서라도 둔다 — 5개를 못 채우는 것보다 낫다.
+        n_swap = min(len(low_in) - deps.settings.low_structure_cap, len(spare_free))
+        if n_swap > 0:
+            drop = deps.rng.sample(low_in, n_swap)
+            add = deps.rng.sample(spare_free, n_swap)
+            rest = [p for p in rest if p not in drop] + add
+        picked += rest
     else:
-        # free/저구조 풀이 다 모자란 예외적 경우 — constrained에서 마저 채움
-        picked += fallback_pool
+        # 안전+위험군 풀이 다 모자란 예외적 경우 — constrained에서 마저 채움
+        picked += rest_pool
         leftover = [p for p in constrained if p not in picked]
-        picked += deps.rng.sample(
-            leftover, min(deps.settings.patterns_per_day - len(picked), len(leftover)))
+        picked += deps.rng.sample(leftover, min(slots - len(rest_pool), len(leftover)))
 
     deps.log(f"[문형] 선택됨: {', '.join(p.id for p in picked)}")
     return picked
