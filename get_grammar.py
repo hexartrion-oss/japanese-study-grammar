@@ -369,17 +369,65 @@ def _normalize(text: str) -> str:
     return text
 
 
+# ── 활용형·표기 변형 허용 ────────────────────────────────────
+# 문형 id는 사전형(〜ない・〜ある)으로 등록돼 있는데 지문은 과거·부정 활용형으로 쓰는 것이
+# 정상이다(「涙を禁じ得なかった」「きらいがあった」「にほかならなかった」). 리터럴 매칭만 하면
+# 이런 정상 문장이 "문형 누락"으로 떨어졌다(2026-09-18 を禁じ得ない, 09-25·10-02 등 — 감사 기록
+# docs/plans/2026-10-03_audit.md). 허용 형태는 **평서체(だ・である) 활용형까지만** 둔다:
+# 「〜ませんでした」 같은 정중체를 받아 주면 문체 고정(build_prompt 규칙 7)을 위반한 지문을
+# 이쪽이 가려 버린다. 키는 Pattern.terms의 개별 term 문자열이다.
+_NEG = r"(?:ない|なかった|なく(?:て|も)?|なければ|ず)"
+_TERM_VARIANTS = {
+    "を禁じ得ない": re.compile(r"を禁じ得" + _NEG),
+    "てやまない": re.compile(r"てやま" + _NEG),
+    "にほかならない": re.compile(r"に(?:ほか|他)なら" + _NEG),
+    "にかたくない": re.compile(r"に(?:かた|難)く(?:ない|なかった|なくて|なく)"),
+    "にたえない": re.compile(r"に(?:たえ|堪え)" + _NEG),
+    "に違いない": re.compile(r"に違い(?:ない|なかった)"),
+    "きらいがある": re.compile(r"きらいが(?:ある|あった|あって|あり(?!ま[しせ]))"),
+    "に決まっている": re.compile(r"に決まって(?:いる|いた|いて)"),
+    "でもない": re.compile(r"でも" + _NEG),
+    "とは言えない": re.compile(r"とは言え" + _NEG),
+    "ようにする": re.compile(r"ように(?:する|した|して|しない|しなかった|すれば)"),
+    # 같은 문법 항목의 변형: なりに/なりの, と相まって/が相まって(AとBが相まって), 伴って의 가나 표기
+    "なりに": re.compile(r"なり(?:に|の)"),
+    "と相まって": re.compile(r"(?:と|が)相まっ(?:て|た)"),
+    "に伴って": re.compile(r"に(?:伴|ともな)っ(?:て|た)"),
+}
+
+
+def _locate(text: str, term: str):
+    """text 안에서 term(또는 허용 변형)이 처음 나오는 (시작, 끝) 위치. 없으면 None."""
+    variant = _TERM_VARIANTS.get(term)
+    if variant is not None:
+        m = variant.search(text)
+        return (m.start(), m.end()) if m else None
+    idx = text.find(term)
+    return (idx, idx + len(term)) if idx != -1 else None
+
+
+def _pattern_found(pattern, text: str) -> bool:
+    """Pattern.found_in()과 같은 의미(대안 그룹 중 하나의 모든 term이 존재)에 변형 허용을 더한 것."""
+    return any(all(_locate(text, t) is not None for t in group) for group in pattern.terms)
+
+
 # ── 위험 문형 사후 구조 검증 ──────────────────────────────────
 # 89개 전수 점검(문형별 결합 제약 조사)에서 "문자열만 있으면 통과되는
 # 검증으로는 못 잡는" 오류가 나올 수 있다고 확인된 문형에 한해,
 # 문자열 등장 여부와 별개로 구조를 한 번 더 확인한다.
 # 나머지 문형(비교적 결합 범위가 넓은 것)은 build_prompt의 note 지침에만 의존한다.
 _NEG_RESULT_WORDS = ["ない", "できない", "わからない", "分からない", "難しい", "無理", "不可能"]
-_VARIATION_WORDS = ["分かれる", "異なる", "変わる", "決まる", "次第", "左右され", "変動する"]
+_VARIATION_WORDS = ["分かれる", "異なる", "変わる", "決まる", "次第", "左右され", "変動する",
+                    "変更", "変化", "違い", "違う"]
 _HARDSHIP_WORDS = [
     "結局", "無駄", "失敗", "後悔", "苦労", "疲れ", "諦め", "破綻", "叱られ", "怒られ", "台無し",
     "虚しい", "むなしい", "落胆", "報われ", "無意味", "徒労", "空回り", "骨折り損", "がっかり", "挫折",
     "体調を崩す", "落ち込む", "迷惑",
+    # 2026-10-03 감사에서 정상 문장이 이 목록 밖 어휘 때문에 탈락한 사례를 보강
+    # (「断られた」「怒って帰った」「大損」「事故」「試験に落ちた」「大きな遅れ」).
+    # 「事故」는 검증 전 정규화(_KANJI_TO_KANA의 事→こと)로 「こと故」가 되므로 그 형태로 등록한다.
+    "断られ", "怒っ", "怒ら", "損", "こと故", "遅れ", "落ちた", "落ちる", "混乱", "悪化",
+    "失っ", "失う", "トラブル", "破損",
 ]
 # 落ち込む는 "낙담하다"(감정) 외에 "(기온·수치가) 떨어지다"(물리적) 뜻도 있다.
 # 화자 본인과 무관한 물리적 하락이 와도 _contains_any()가 통과시킬 수 있는데,
@@ -392,19 +440,29 @@ _CRITICAL_TONE_WORDS = [
     "腹が立", "不満", "非難", "責め", "説教", "困った", "困る",
 ]
 
+# を禁じ得ない 앞에 오는 감정 명사. 2026-10-03 감사: 6개(涙·怒り·驚き·失望·感動·悲しみ)만 허용해
+# 「疑問」「同情」「安堵の念」「悔しさ」가 탈락했다. 의지적 행위(決断·行動)는 여전히 불허.
+_KINJIENAI_PRECEDERS = [
+    "涙", "怒り", "驚き", "失望", "感動", "悲しみ", "同情", "疑問", "不安", "念", "悔し",
+    "憤り", "落胆", "寂しさ", "喜び", "笑い", "感慨", "懸念", "危惧", "共感", "無念", "驚嘆",
+    "哀れみ", "憐れみ", "戸惑い", "苛立ち", "恐れ", "不満", "疑念",
+]
+# にかたくない 앞에 오는 사고·추측 어휘 (想像 외에 予想·推測 등).
+_KATAKUNAI_PRECEDERS = ["想像", "推察", "察する", "理解", "予想", "推測", "予測", "察し"]
+
 
 def _window_after(text: str, term: str, span: int = 40) -> str:
-    idx = text.find(term)
-    if idx == -1:
+    loc = _locate(text, term)
+    if loc is None:
         return ""
-    return text[idx + len(term): idx + len(term) + span]
+    return text[loc[1]: loc[1] + span]
 
 
 def _window_before(text: str, term: str, span: int = 8) -> str:
-    idx = text.find(term)
-    if idx == -1:
+    loc = _locate(text, term)
+    if loc is None:
         return ""
-    return text[max(0, idx - span): idx]
+    return text[max(0, loc[0] - span): loc[0]]
 
 
 # 형태소 분석기는 생성 비용이 있어 모듈 전역에 하나만 둔다. そうだ(伝聞/様態
@@ -471,10 +529,10 @@ def _check_critical_tone(text: str, term: str) -> bool:
     최소한 하나라도 있는지만 느슨하게 확인한다. 통과해도 진짜 비판적 어조인지
     보장 못 하며, 이 목록에 없는 단어로 비판했다면 놓칠 수 있다 — 최소한의
     안전망일 뿐이다."""
-    idx = text.find(term)
-    if idx == -1:
+    loc = _locate(text, term)
+    if loc is None:
         return False
-    window = text[max(0, idx - 20): idx + len(term) + 30]
+    window = text[max(0, loc[0] - 20): loc[1] + 30]
     return _contains_any(window, _CRITICAL_TONE_WORDS)
 
 
@@ -486,10 +544,10 @@ def _check_collocate_before(text: str, term: str, allowed: list) -> bool:
 
 def _check_kirai_no_double_softening(text: str) -> bool:
     """〜きらいがある: つつある/ている와 겹쳐 이중 완곡화되면 안 됨."""
-    idx = text.find("きらいがある")
-    if idx == -1:
+    loc = _locate(text, "きらいがある")
+    if loc is None:
         return False
-    before = text[max(0, idx - 10): idx]
+    before = text[max(0, loc[0] - 10): loc[0]]
     return "つつある" not in before
 
 
@@ -573,7 +631,7 @@ _PRESENCE_CHECKS = {
 def _pattern_used(pattern, text: str) -> bool:
     """문형이 지문에 실제로 쓰였는지. 리터럴 매칭이 기본이고, _PRESENCE_CHECKS에
     등록된 문형은 형태소 분석으로 한 번 더 확인한다."""
-    if not pattern.found_in(text):
+    if not _pattern_found(pattern, text):
         return False
     refine = _PRESENCE_CHECKS.get(pattern.id)
     return refine(text) if refine else True
@@ -588,12 +646,10 @@ _EXTRA_CHECKS = {
     "ばかりに": lambda t: _check_hardship_after(t, "ばかりに"),
     "くせに": lambda t: _check_critical_tone(t, "くせに"),
     "にかたくない": lambda t: (
-        _check_collocate_before(t, "にかたくない", ["想像", "推察", "察する", "理解"])
-        or _check_collocate_before(t, "に難くない", ["想像", "推察", "察する", "理解"])
+        _check_collocate_before(t, "にかたくない", _KATAKUNAI_PRECEDERS)
+        or _check_collocate_before(t, "に難くない", _KATAKUNAI_PRECEDERS)
     ),
-    "を禁じ得ない": lambda t: _check_collocate_before(
-        t, "を禁じ得ない", ["涙", "怒り", "驚き", "失望", "感動", "悲しみ"]
-    ),
+    "を禁じ得ない": lambda t: _check_collocate_before(t, "を禁じ得ない", _KINJIENAI_PRECEDERS),
     "きらいがある": lambda t: _check_kirai_no_double_softening(t),
     "そうだ(伝聞)": lambda t: _check_sou_da(t, "伝聞"),
     "そうだ(様態)": lambda t: _check_sou_da(t, "様態"),
