@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 from typing import Sequence
 
@@ -168,6 +169,22 @@ class FakeFonts:
         return self.path
 
 
+class FakeEvidence:
+    """검색 그라운딩 가짜. results를 순서대로 돌려주고, 다 쓰면 마지막 것을 반복한다."""
+
+    def __init__(self, results: list | None = None):
+        self.results = list(results or [ports.EvidenceResult(
+            status="ok", text="判定: 自然\n根拠: x\n出典種別: 論文",
+            sources=({"host": "nii.ac.jp", "title": "nii.ac.jp", "uri": "u"},),
+            latency_s=1.0, model="fake")])
+        self.calls: list[str] = []
+
+    def check(self, prompt: str):
+        self.calls.append(prompt)
+        i = min(len(self.calls) - 1, len(self.results) - 1)
+        return self.results[i]
+
+
 def make_deps(
     *,
     utc: datetime.datetime | None = None,
@@ -179,6 +196,10 @@ def make_deps(
     mail_ok: bool = True,
     settings: ports.Settings | None = None,
     secrets: ports.Secrets | None = None,
+    judge_pass: str = "",
+    with_usage: bool = False,
+    evidence=None,
+    run_id: str = "",
 ) -> tuple[ports.Deps, dict]:
     """테스트에서 자주 쓰는 조합을 한 번에 조립한다. 두 번째 반환값은
     개별 가짜 구현에 접근할 수 있는 dict — 호출 기록을 검사할 때 쓴다."""
@@ -188,7 +209,7 @@ def make_deps(
     clock = FakeClock(utc)
     rng = FakeRng()
     log = ListLogger()
-    llm = ScriptedLlm(llm_responses)
+    llm = ScriptedLlm(llm_responses, judge_pass=judge_pass)
     mailer = RecordingMailer(send_result=mail_ok)
     store = InMemoryStore(store_initial)
     vcs = RecordingVcs(enabled=in_ci)
@@ -202,11 +223,20 @@ def make_deps(
             gemini_api_key="x", email_recipients="reader@example.com",
         ),
         mode=ports.RunMode(manual=manual, forced_category=forced_category,
-                           in_ci=in_ci),
+                           in_ci=in_ci, run_id=run_id, commit_sha="deadbeef" if run_id else ""),
         settings=settings or ports.Settings(),
     )
+    usage = None
+    if with_usage:
+        from usage_repository import JsonUsageRepository
+        usage = JsonUsageRepository(store, first_month="2026-09",
+                                    today_fn=lambda: clock.now_utc().date())
+        deps = dataclasses.replace(deps, usage=usage, usage_reader=usage)
+    if evidence is not None:
+        deps = dataclasses.replace(deps, evidence=evidence)
     fakes = {"clock": clock, "rng": rng, "log": log, "llm": llm,
-             "mailer": mailer, "store": store, "vcs": vcs, "fonts": fonts}
+             "mailer": mailer, "store": store, "vcs": vcs, "fonts": fonts,
+             "usage": usage, "evidence": evidence}
     return deps, fakes
 
 

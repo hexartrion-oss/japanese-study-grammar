@@ -28,6 +28,7 @@ from typing import Sequence
 from zoneinfo import ZoneInfo
 
 import ports
+from usage_repository import JsonUsageRepository
 
 try:
     from google import genai as google_genai
@@ -124,6 +125,59 @@ class GeminiLlm:
                     self.log(f"[Gemini] {model_id} 오류(폴백 전환): {e}")
                     break
         return ""
+
+
+# ── 검색 그라운딩 근거 조회 ─────────────────────────────
+class GeminiGroundedEvidence:
+    """Gemini google_search 도구로 근거를 조회한다. 예외를 던지지 않고 status로 알린다.
+
+    재시도·모델 폴백·장시간 sleep을 하지 않는다 — 2026-10-03 실측에서 호출이 평균 30초(최대 107초)
+    걸렸고 무료 한도가 작았다. 일일 실행(20분 타임아웃) 안에서 이 호출 때문에 시간을 더 쓰지 않게
+    호출당 타임아웃으로만 막는다."""
+
+    def __init__(self, api_key: str, log: ports.Logger, model: str, timeout_ms: int):
+        self.api_key = api_key
+        self.log = log
+        self.model = model
+        self.timeout_ms = timeout_ms
+
+    def check(self, prompt: str) -> ports.EvidenceResult:
+        if not GEMINI_AVAILABLE or not self.api_key:
+            return ports.EvidenceResult(status="unavailable", model=self.model)
+        t0 = time.time()
+        try:
+            client = google_genai.Client(api_key=self.api_key)
+            cfg = genai_types.GenerateContentConfig(
+                temperature=0.0,
+                tools=[genai_types.Tool(google_search=genai_types.GoogleSearch())],
+                http_options=genai_types.HttpOptions(timeout=self.timeout_ms),
+            )
+            res = client.models.generate_content(model=self.model, contents=prompt, config=cfg)
+            return ports.EvidenceResult(
+                status="ok", text=res.text or "", sources=tuple(_grounding_sources(res)),
+                latency_s=round(time.time() - t0, 1), model=self.model)
+        except Exception as e:  # noqa: BLE001 — 진단·기록 목적, 키 문자열은 가린다
+            err = str(e).replace(self.api_key, "***")
+            quota = "429" in err or "RESOURCE_EXHAUSTED" in err
+            self.log(f"[증거] {self.model} 호출 실패: {err[:160]}")
+            return ports.EvidenceResult(status="quota" if quota else "error", model=self.model,
+                                        latency_s=round(time.time() - t0, 1))
+
+
+def _grounding_sources(response) -> list:
+    """응답의 grounding_chunks에서 출처 도메인을 뽑는다. 필드가 없으면 빈 목록."""
+    out = []
+    try:
+        gm = getattr(response.candidates[0], "grounding_metadata", None)
+        for ch in (getattr(gm, "grounding_chunks", None) or []):
+            web = getattr(ch, "web", None)
+            if web is None:
+                continue
+            title = getattr(web, "title", "") or ""
+            out.append({"host": title, "title": title, "uri": getattr(web, "uri", "") or ""})
+    except (AttributeError, IndexError, TypeError):
+        pass
+    return out
 
 
 # ── 메일 ───────────────────────────────────────────────
@@ -295,6 +349,8 @@ def load_run_mode(env: dict | None = None) -> ports.RunMode:
         manual_mail_to=env.get("MANUAL_MAIL_TO", ""),
         forced_category=env.get("FORCE_CATEGORY", "").strip(),
         in_ci=env.get("GITHUB_ACTIONS") == "true",
+        run_id=env.get("GITHUB_RUN_ID", ""),
+        commit_sha=env.get("GITHUB_SHA", ""),
     )
 
 
@@ -306,16 +362,28 @@ def build_production_deps(base_dir: str, settings: ports.Settings | None = None)
     log = FileLogger(os.path.join(base_dir, "run_log.txt"))
     secrets = load_secrets(base_dir=base_dir)
     mode = load_run_mode()
+    settings = settings or ports.Settings()
+    clock = SystemClock()
+    store = JsonFileStore(base_dir, log)
+    usage = JsonUsageRepository(store, first_month=settings.usage_start_month,
+                                today_fn=lambda: clock.now_utc().date(), log=log)
+    evidence = None
+    if settings.evidence_mode != "off" and secrets.gemini_api_key:
+        evidence = GeminiGroundedEvidence(secrets.gemini_api_key, log, settings.evidence_model,
+                                          settings.evidence_timeout_ms)
     return ports.Deps(
-        clock=SystemClock(),
+        clock=clock,
         rng=SystemRng(),
         log=log,
         llm=GeminiLlm(secrets.gemini_api_key, log),
         mailer=SmtpMailer(secrets.gmail_address, secrets.gmail_app_password, log),
-        store=JsonFileStore(base_dir, log),
+        store=store,
         vcs=GitVcs(base_dir, log, enabled=mode.in_ci),
         fonts=SystemFonts(),
         secrets=secrets,
         mode=mode,
-        settings=settings or ports.Settings(),
+        settings=settings,
+        usage=usage,
+        usage_reader=usage,
+        evidence=evidence,
     )

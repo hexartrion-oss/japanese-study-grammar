@@ -50,6 +50,8 @@ class RunMode:
     manual_mail_to: str = ""       # 수동 실행 시 단일 수신자
     forced_category: str = ""      # FORCE_CATEGORY (grammar_bank의 key와 정확히 일치해야 함)
     in_ci: bool = False            # GITHUB_ACTIONS == "true" (git 커밋 여부를 가른다)
+    run_id: str = ""               # GITHUB_RUN_ID — 같은 날 재실행을 구분(용법 기록의 멱등 키)
+    commit_sha: str = ""           # GITHUB_SHA — 어떤 코드로 돌았는지 사후 비교용
 
 
 @dataclass(frozen=True)
@@ -79,6 +81,17 @@ class Settings:
     # 하루 조합에 이 부류가 몇 개나 섞여도 되는지의 상한 — README/MANUAL
     # "강조·역접 저구조 위험군" 참고.
     low_structure_cap: int = 2
+
+    # ── 용법 기록 / 증거 검증 / 생성 힌트 (2026-10-03 계획) ──
+    # 모두 기본 off. 켜기 전에 기존 동작과 동일함을 테스트가 보장한다.
+    usage_start_month: str = "2026-10"   # 월별 샤드(usage_log_YYYY-MM)를 읽기 시작하는 달
+    evidence_mode: str = "off"           # off | shadow — enforce(번복)는 구현하지 않았다(계획 §5)
+    evidence_model: str = "gemini-2.5-flash"   # 3.5-flash는 이 키로 그라운딩이 429(2026-10-03 실측)
+    evidence_daily_cap: int = 3          # 실행당 증거 호출 상한(검색 그라운딩 무료 한도가 매우 작다)
+    evidence_timeout_ms: int = 90_000    # 호출당 타임아웃 — 실측 최대 107초
+    evidence_min_qualified: int = 1      # 학술·신문 도메인 출처가 이 수 이상이어야 "적격"
+    usage_hint_mode: str = "off"         # off | examples — 사람이 확인한 용례만 생성 프롬프트에 제시
+    usage_hint_max: int = 2              # 하루 프롬프트에 넣는 힌트 문형 수 상한
 
     @property
     def cooldown_bypass_threshold(self) -> int:
@@ -149,6 +162,42 @@ class Fonts(Protocol):
     def find(self, style: str = "") -> str: ...
 
 
+@dataclass(frozen=True)
+class EvidenceResult:
+    """검색 그라운딩 호출 한 번의 결과. 실패해도 예외 대신 status로 알린다."""
+    status: str = "unavailable"    # ok | quota | error | unavailable
+    text: str = ""
+    sources: tuple = ()            # ({"host", "title", "uri"}, ...) — 도메인 수준만 알 수 있다
+    latency_s: float = 0.0
+    model: str = ""
+
+
+class Evidence(Protocol):
+    """웹 검색 근거 조회. 판정(Llm)과 별개 포트 — 검색을 안 쓰는 호출부가 몰라도 된다(ISP)."""
+
+    def check(self, prompt: str) -> EvidenceResult: ...
+
+
+class UsageWriter(Protocol):
+    """용법·판정·증거 기록 쓰기. 기록 실패는 발송을 막지 않는다(False만 돌려준다)."""
+
+    def shard_name(self, date: datetime.date) -> str: ...
+
+    def record_run(self, record: dict) -> bool: ...
+
+    def add_overturned(self, case: dict) -> bool: ...
+
+
+class UsageReader(Protocol):
+    """누적 기록 읽기 — 월간 리포트·생성 힌트가 쓴다."""
+
+    def runs_between(self, start: datetime.date, end: datetime.date) -> list: ...
+
+    def overturned_between(self, start: datetime.date, end: datetime.date) -> list: ...
+
+    def confirmed_cases(self, pattern_id: str) -> list: ...
+
+
 # ── 주입 컨테이너 ───────────────────────────────────────
 @dataclass(frozen=True)
 class Deps:
@@ -169,6 +218,9 @@ class Deps:
     secrets: Secrets = field(default_factory=Secrets)
     mode: RunMode = field(default_factory=RunMode)
     settings: Settings = field(default_factory=Settings)
+    usage: UsageWriter | None = None
+    usage_reader: UsageReader | None = None
+    evidence: Evidence | None = None
 
 
 # 상태 파일의 논리적 이름. Store 구현이 실제 경로로 바꾼다.

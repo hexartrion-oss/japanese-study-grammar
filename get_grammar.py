@@ -24,8 +24,10 @@ from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 from janome.tokenizer import Tokenizer
 
+import evidence_check as EC
 import grammar_bank as GB
 import ports
+import usage_record as UR
 
 # ── 경로/기본값 ────────────────────────────────────────
 # 환경변수·자격 증명은 더 이상 이 모듈이 직접 읽지 않는다. adapters.py가
@@ -690,6 +692,10 @@ def validate_passage(deps: ports.Deps, passage: str, patterns: list):
     return True, "", []
 
 
+# 검증 규칙 버전 — 규칙을 바꿀 때마다 올린다. 용법 기록에 함께 남아 개정 전후 통계를 가른다.
+RULES_VERSION = "2026-10-04-p1"
+
+
 # ── 자연스러움 판정 (LLM 교차 검증) ───────────────────────────
 # validate_passage()는 문장 수·문형 존재 여부·일부 구조 제약(_EXTRA_CHECKS 11개)만
 # 본다. 89개 중 _EXTRA_CHECKS가 없는 78개는 규칙 기반 검증이 불가능하다고 이미
@@ -744,17 +750,43 @@ def parse_judge_output(raw: str, patterns: list) -> dict:
     return result
 
 
-def judge_naturalness(deps: ports.Deps, passage: str, patterns: list) -> dict:
-    """실패해도(호출 실패, 파싱 실패) 전부 ok=True를 반환해 발송을 막지 않는다.
-    판정은 방어선이지 필수 관문이 아니다 — 판정 자체의 장애가 서비스 전체를
-    멈추게 해서는 안 된다."""
+def _judge_seen_ids(raw: str, patterns: list) -> set:
+    """판정 출력에서 실제로 파싱된(문형명이 정확히 일치한) 줄의 문형 id."""
+    ids = {p.id for p in patterns}
+    seen = set()
+    for line in raw.strip().split("\n"):
+        parts = line.split("|")
+        if len(parts) >= 2 and parts[0].strip() in ids:
+            seen.add(parts[0].strip())
+    return seen
+
+
+def judge_with_status(deps: ports.Deps, passage: str, patterns: list):
+    """(판정 결과, 상태) — 상태: ran | call_failed | parse_partial | parse_failed.
+
+    상태를 따로 돌려주는 이유: 호출 실패·파싱 누락은 모두 "통과"로 처리(fail-open)되므로, 결과 dict만
+    보면 "검증됨"과 "검증 안 됨"이 구분되지 않는다. 2026-10-03 감사에서 성공한 실행의 최종 시도
+    6회 중 4회가 판정 없이 통과한 사실이 로그를 직접 읽고서야 드러났다."""
     prompt = build_judge_prompt(passage, patterns)
     # temperature 0: 판정은 일관성이 먼저
     raw = deps.llm.generate(prompt, temperature=0.0, model=deps.settings.judge_model)
     if not raw:
         deps.log("[판정] 호출 실패 — 판정 생략하고 통과 처리")
-        return {p.id: {"ok": True, "note": "판정 호출 실패"} for p in patterns}
-    return parse_judge_output(raw, patterns)
+        return {p.id: {"ok": True, "note": "판정 호출 실패"} for p in patterns}, "call_failed"
+    result = parse_judge_output(raw, patterns)
+    seen = _judge_seen_ids(raw, patterns)
+    if len(seen) == len(patterns):
+        return result, "ran"
+    status = "parse_partial" if seen else "parse_failed"
+    deps.log(f"[판정] 출력 파싱 불완전({len(seen)}/{len(patterns)}) — 파싱 안 된 문형은 통과 처리")
+    return result, status
+
+
+def judge_naturalness(deps: ports.Deps, passage: str, patterns: list) -> dict:
+    """실패해도(호출 실패, 파싱 실패) 전부 ok=True를 반환해 발송을 막지 않는다.
+    판정은 방어선이지 필수 관문이 아니다 — 판정 자체의 장애가 서비스 전체를
+    멈추게 해서는 안 된다."""
+    return judge_with_status(deps, passage, patterns)[0]
 
 
 def check_extra_structural(passage: str, patterns: list) -> dict:
@@ -784,7 +816,53 @@ def compare_judgments(code_results: dict, judge_result: dict) -> dict:
     return comparison
 
 
-def generate_passage(deps: ports.Deps, category: dict, history: dict):
+def _run_evidence_shadow(deps: ports.Deps, passage: str, patterns: list, flagged: list,
+                         state: dict) -> list:
+    """flagged=[(source, pid)] 각각에 대해 검색 근거를 조회해 **기록만** 한다(번복하지 않는다).
+
+    호출 수는 실행당 evidence_daily_cap으로 막고, 429(할당량)를 받으면 남은 호출을 건너뛴다 —
+    2026-10-03 실측에서 검색 그라운딩 무료 한도가 매우 작았다. 어댑터가 없거나 모드가 off면 호출하지 않는다."""
+    records = []
+    by_id = {p.id: p for p in patterns}
+    for source, pid in flagged:
+        if state["stopped"] or state["calls"] >= deps.settings.evidence_daily_cap:
+            break
+        pattern = by_id.get(pid)
+        if pattern is None:
+            continue
+        sentence = EC.extract_sentence(
+            passage, lambda sen, _p=pattern: _pattern_found(_p, _normalize(sen)))
+        state["calls"] += 1
+        result = deps.evidence.check(EC.build_prompt(pid, sentence))
+        records.append({"pattern": pid, "source": source, "sentence": sentence,
+                        **EC.summarize(result)})
+        if result.status == "quota":
+            state["stopped"] = True
+            deps.log("[증거] 429(할당량 초과) — 이번 실행의 남은 증거 호출을 건너뜀")
+        elif result.status != "ok":
+            deps.log(f"[증거] 호출 실패({result.status}) — 기록만 하고 계속")
+    return records
+
+
+def _attempt_record(attempt: int, temperature: float, patterns: list, outcome: str, reason: str,
+                    judge_status, judgment, code_problem_ids: list, evidence: list) -> dict:
+    notes_valid = judge_status in ("ran", "parse_partial")
+    return {
+        "attempt": attempt,
+        "temperature": temperature,
+        "patterns": [p.id for p in patterns],
+        "outcome": outcome,
+        "reason": reason,
+        "judge_status": judge_status,
+        "judge_failed": [pid for pid, v in (judgment or {}).items() if not v["ok"]],
+        "judge_notes": ({pid: v["note"] for pid, v in (judgment or {}).items() if v.get("note")}
+                        if notes_valid else {}),
+        "code_problem_ids": list(code_problem_ids),
+        "evidence": evidence,
+    }
+
+
+def generate_passage(deps: ports.Deps, category: dict, history: dict, attempt_sink: list | None = None):
     patterns = select_patterns(deps, category, history)
     temperatures = [0.7, 0.6, 0.4, 0.2]
     attempts_log = []  # 실패 알림 메일에 그대로 실릴 시도별 진단 정보
@@ -794,6 +872,9 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict):
     # 문체 문제는 같은 방식으로 다시 틀릴 수 있다(2026-09-21 ことができました/
     # でもなかった처럼 정중체로 써서 평서체 기준 검증을 놓친 사례).
     retry_feedback = None
+    sink = attempt_sink if attempt_sink is not None else []   # 시도별 기록(통과·실패 모두)
+    evidence_active = deps.settings.evidence_mode == "shadow" and deps.evidence is not None
+    evidence_state = {"calls": 0, "stopped": False}
     for attempt in range(deps.settings.max_gen_attempts):
         if attempt == 2:
             # 두 번 실패하면 문형 조합 자체를 바꿔서 재시도. 직전 조합을
@@ -815,9 +896,11 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict):
         # 항상 판정과 코드 검증을 나란히 실행해 불일치를 기록한다(재시도 여부에는
         # 영향 없음). 코드가 실격시킨 케이스에서 LLM이 어떻게 판단하는지가
         # 이 비교의 핵심 데이터다.
+        code_structural_ids = list(problem_ids) if (not ok and reason.startswith("구조 조건 미충족")) else []
         judgment = None
+        judge_status = None
         if passage:
-            judgment = judge_naturalness(deps, passage, patterns)
+            judgment, judge_status = judge_with_status(deps, passage, patterns)
             code_results = check_extra_structural(passage, patterns)
             comparison = compare_judgments(code_results, judgment)
             for pid, c in comparison.items():
@@ -835,6 +918,22 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict):
                 ok = False
                 reason = "자연스러움 판정 실패: " + ", ".join(failed.keys())
                 problem_ids = list(failed.keys())
+
+        # 증거 검증(shadow): 판정 NG·코드 구조 실격 문형에 한해 검색 근거를 기록만 한다.
+        evidence_records = []
+        if passage and evidence_active:
+            seen = set()
+            flagged = []
+            for source, pid in ([("code", i) for i in code_structural_ids]
+                                + [("judge", pid) for pid, v in (judgment or {}).items() if not v["ok"]]):
+                if pid not in seen:
+                    seen.add(pid)
+                    flagged.append((source, pid))
+            evidence_records = _run_evidence_shadow(deps, passage, patterns, flagged, evidence_state)
+
+        sink.append(_attempt_record(
+            attempt + 1, temperatures[attempt], patterns, "passed" if ok else "failed",
+            "" if ok else reason, judge_status, judgment, code_structural_ids, evidence_records))
 
         if ok:
             deps.log(f"[생성] {attempt + 1}번째 시도에서 성공")
@@ -1050,18 +1149,61 @@ def notify_admin_failure(deps: ports.Deps, reason: str, attempts_log: list = Non
 
 
 # ── 이력 커밋 (성공한 경우에만 호출됨) ──────────────────
-def commit_state(deps: ports.Deps, name: str, label: str, today: datetime.date):
-    """상태 파일 하나를 커밋·푸시한다.
+def commit_state(deps: ports.Deps, name, label: str, today: datetime.date):
+    """상태 파일 하나(또는 여러 개)를 한 번의 커밋·푸시로 올린다.
 
     이전에는 used_history/failure_history/shadow_review마다 같은 함수가
     복사돼 있었다(커밋 메시지와 파일 경로만 달랐다). 절차가 바뀌면 세 곳을
-    모두 고쳐야 해서 어긋나기 쉬웠으므로 하나로 합쳤다."""
+    모두 고쳐야 해서 어긋나기 쉬웠으므로 하나로 합쳤다. 이름을 목록으로 받는 것은
+    푸시 횟수를 늘리지 않기 위해서다 — `git push`는 pull 없이 한 번뿐이라, 실행 도중 main이
+    움직이면 거부될 수 있고 푸시가 많을수록 그 확률이 커진다."""
+    names = [name] if isinstance(name, str) else list(name)
     ok = deps.vcs.commit_and_push(
-        [deps.store.path_of(name)],
+        [deps.store.path_of(n) for n in names],
         f"chore: update {label} ({today.isoformat()})",
     )
     if ok:
         deps.log(f"[{label}] 커밋 및 푸시 완료")
+
+
+def _usage_by_pattern(passage: str, patterns: list) -> list:
+    """통과한 지문에서 문형마다 실제로 쓰인 문장 하나(용법 기록용)."""
+    out = []
+    for p in patterns:
+        sentence = EC.extract_sentence(
+            passage, lambda sen, _p=p: _pattern_found(_p, _normalize(sen)))
+        out.append({"pattern": p.id, "sentence": sentence})
+    return out
+
+
+def record_usage(deps: ports.Deps, today: datetime.date, category: dict, topic, passage,
+                 patterns: list, attempt_sink: list) -> list:
+    """용법 기록을 저장하고, 커밋할 샤드 이름 목록을 돌려준다. 기록 실패는 발송을 막지 않는다."""
+    if deps.usage is None:
+        return []
+    record = UR.build_run_record(
+        date=today.isoformat(), category=category["key"], run_id=deps.mode.run_id,
+        commit_sha=deps.mode.commit_sha, manual=deps.mode.manual, rules_version=RULES_VERSION,
+        evidence_mode=deps.settings.evidence_mode, judge_model=deps.settings.judge_model,
+        result="passed" if passage else "failed", topic=topic, passage=passage,
+        patterns=[p.id for p in patterns],
+        usages=_usage_by_pattern(passage, patterns) if passage else [],
+        attempts=attempt_sink)
+    if not deps.usage.record_run(record):
+        deps.log("[용법기록] 기록 실패 — 발송에는 영향 없음")
+        return []
+    for a in attempt_sink:
+        for ev in a.get("evidence", []):
+            if not EC.usable_for_overturn(ev, deps.settings.evidence_min_qualified):
+                continue
+            deps.usage.add_overturned({
+                "date": today.isoformat(), "pattern": ev["pattern"], "sentence": ev["sentence"],
+                "direction": "judge_ng→web_ok" if ev["source"] == "judge" else "code_ng→web_ok",
+                "judge_note": a.get("judge_notes", {}).get(ev["pattern"]),
+                "web_basis": ev.get("basis", ""), "hosts": ev.get("hosts", []),
+                "n_qualified": ev.get("n_qualified", 0), "run_id": deps.mode.run_id,
+            })
+    return [deps.usage.shard_name(today)]
 
 
 def send_weekly_shadow_report(deps: ports.Deps, review: dict, today: datetime.date):
@@ -1124,13 +1266,17 @@ def main(deps: ports.Deps) -> bool:
     category = pick_category(deps, today)
     history = load_history(deps)
 
+    attempt_sink: list = []
     topic, passage, patterns, attempts_log, shadow_log = generate_passage(
-        deps, category, history)
+        deps, category, history, attempt_sink=attempt_sink)
+
+    # 용법·판정 상태 기록: 통과·실패 모두 남긴다(실패를 빼면 통계의 분모가 없다).
+    usage_names = record_usage(deps, today, category, topic, passage, patterns, attempt_sink)
 
     # 그림자 비교 기록은 발송 성공/실패와 무관하게 매 실행 후 저장·커밋한다.
     shadow_review = load_shadow_review(deps)
     append_shadow_review(deps, shadow_review, category["key"], shadow_log, today)
-    commit_state(deps, ports.SHADOW_REVIEW, "그림자비교", today)
+    commit_state(deps, [ports.SHADOW_REVIEW, *usage_names], "그림자비교", today)
     send_weekly_shadow_report(deps, shadow_review, today)
 
     if not passage:
