@@ -152,5 +152,89 @@ class SendMonthlyReportTests(unittest.TestCase):
         self.assertTrue(fakes["log"].has("누적 데이터 없음"))
 
 
+
+# ── 용법·판정·증거 통계 (2026-10-03 계획 P3) ──────────────────
+class AggregateUsageTests(unittest.TestCase):
+    RUNS = [
+        {"date": "2026-10-05", "result": "passed", "patterns": ["a", "b"], "rules_version": "v1",
+         "attempts": [{"judge_status": "call_failed", "outcome": "failed"},
+                      {"judge_status": "call_failed", "outcome": "passed"}],
+         "final_judge_status": "call_failed", "judge_summary": {"call_failed": 2}},
+        {"date": "2026-10-06", "result": "passed", "patterns": ["a", "c"], "rules_version": "v2",
+         "attempts": [{"judge_status": "ran", "outcome": "passed", "evidence": [
+             {"verdict": "natural", "status": "ok", "n_qualified": 1},
+             {"verdict": "unavailable", "status": "quota", "n_qualified": 0}]}],
+         "final_judge_status": "ran", "judge_summary": {"ran": 1}},
+        {"date": "2026-10-07", "result": "failed", "patterns": ["d"], "rules_version": "v2",
+         "attempts": [{"judge_status": None, "outcome": "failed"}],
+         "final_judge_status": None, "judge_summary": {}},
+    ]
+    CASES = [{"status": "candidate", "direction": "judge_ng→web_ok", "pattern": "a",
+              "sentence": "s", "hosts": ["nii.ac.jp"], "date": "2026-10-06"},
+             {"status": "confirmed", "direction": "code_ng→web_ok", "pattern": "b",
+              "sentence": "s", "hosts": [], "date": "2026-10-06"}]
+
+    def test_counts(self):
+        u = MR.aggregate_usage_stats(self.RUNS, self.CASES)
+        self.assertEqual((u.runs_total, u.runs_passed, u.runs_failed), (3, 2, 1))
+        self.assertEqual(u.final_judge, {"call_failed": 1, "ran": 1})
+        self.assertEqual(u.judge_attempts, {"call_failed": 2, "ran": 1})
+        self.assertEqual(u.evidence_verdicts, {"natural": 1, "unavailable": 1})
+        self.assertEqual(u.evidence_status, {"ok": 1, "quota": 1})
+        self.assertEqual(dict(u.top_patterns)["a"], 2)
+        self.assertEqual(u.overturned_status, {"candidate": 1, "confirmed": 1})
+        self.assertEqual(u.rules_versions, {"v1": 1, "v2": 2})
+
+    def test_empty(self):
+        u = MR.aggregate_usage_stats([], [])
+        self.assertEqual(u.runs_total, 0)
+        self.assertEqual(u.final_judge, {})
+
+
+class UsageEmailTests(unittest.TestCase):
+    def test_email_unchanged_when_no_usage_stats(self):
+        stats = MR.aggregate_stats({"runs": []}, {"runs": []})
+        subj1, html1 = MR.build_report_email(stats, datetime.date(2026, 11, 1))
+        subj2, html2 = MR.build_report_email(stats, datetime.date(2026, 11, 1), usage_stats=None)
+        self.assertEqual((subj1, html1), (subj2, html2))
+        self.assertNotIn("판정 가동률", html1)
+
+    def test_email_has_judge_uptime_and_review_list(self):
+        stats = MR.aggregate_stats({"runs": []}, {"runs": []})
+        u = MR.aggregate_usage_stats(AggregateUsageTests.RUNS, AggregateUsageTests.CASES)
+        _, html = MR.build_report_email(stats, datetime.date(2026, 11, 1), usage_stats=u)
+        self.assertIn("판정 가동률", html)
+        self.assertIn("1/2", html)                 # 통과한 실행 2건 중 판정이 실제로 돈 것 1건
+        self.assertIn("규칙 버전", html)
+        self.assertIn("검토 대기", html)           # 사람 확인용 후보 목록
+
+
+class SendWithUsageTests(unittest.TestCase):
+    def test_usage_section_and_chart_when_reader_present(self):
+        from usage_repository import JsonUsageRepository
+        deps, fakes = make_deps(store_initial={
+            "used_history": {"runs": [{"date": "2026-10-06", "category": "부사", "patterns": ["a"]}]},
+            "failure_history": {"runs": []},
+            "usage_log_2026-10": {"runs": AggregateUsageTests.RUNS,
+                                  "overturned": AggregateUsageTests.CASES}})
+        repo = JsonUsageRepository(fakes["store"], first_month="2026-10",
+                                   today_fn=lambda: datetime.date(2026, 11, 1))
+        import dataclasses
+        deps = dataclasses.replace(deps, usage_reader=repo)
+        with tempfile.TemporaryDirectory() as tmp:
+            MR.send_monthly_report(deps, datetime.date(2026, 11, 1), tmp)
+            sent = fakes["mailer"].sent[0]
+            self.assertIn("판정 가동률", sent["html"])
+            self.assertGreater(Path(sent["attachment_path"]).stat().st_size, 0)
+
+    def test_without_reader_report_is_the_old_one(self):
+        deps, fakes = make_deps(store_initial={
+            "used_history": {"runs": [{"date": "2026-10-06", "category": "부사", "patterns": ["a"]}]},
+            "failure_history": {"runs": []}})
+        with tempfile.TemporaryDirectory() as tmp:
+            MR.send_monthly_report(deps, datetime.date(2026, 11, 1), tmp)
+        self.assertNotIn("판정 가동률", fakes["mailer"].sent[0]["html"])
+
+
 if __name__ == "__main__":
     unittest.main()
