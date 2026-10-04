@@ -511,7 +511,7 @@ parse_failed), 판정 NG 이유, 통과 지문 전문과 문형별 용례 문장
 ### 스위치
 
 `daily.yml`이 저장소 Variables `EVIDENCE_MODE`(off|shadow)와 `USAGE_HINT_MODE`(off|examples)를
-읽는다. 비우면 모두 off(기존 동작과 동일). 월간 리포트는 용법 기록이 있으면 판정 가동률·증거 현황·
+읽는다. `USAGE_HINT_MODE`는 비우면 off, **`EVIDENCE_MODE`는 비우면 shadow**(2026-10-04부터 — 기록 전용이라 판정·발송에 영향 없음; 끄려면 Variables에 `off`). 월간 리포트는 용법 기록이 있으면 판정 가동률·증거 현황·
 검토 대기 후보를 같은 메일·같은 PNG에 덧붙인다.
 
 ## 문형 조합 충돌 방지

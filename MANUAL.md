@@ -246,7 +246,7 @@
 - **어휘 목록을 고칠 때는 자연문·비문 양방향 테스트를 같이 추가한다** — 목록을 넓히면 오탈락이 줄지만
   오통과가 늘 수 있다. 문장은 `tests/test_validator_battery.py`에 쌓고, 규칙을 바꾸면 `RULES_VERSION`을 올린다.
   정규화(事→こと 등)가 목록 단어를 바꾼다는 점에 주의(「事故」→「こと故」).
-- **증거 검증은 기록 전용이다** — `EVIDENCE_MODE`는 off|shadow만 받는다. 검색 근거로 판정·코드 실격을
+- **증거 검증은 기록 전용이다(2026-10-04부터 daily.yml 기본 shadow)** — `EVIDENCE_MODE`는 off|shadow만 받는다. 끄려면 저장소 Variables에 `EVIDENCE_MODE=off`. 검색 근거로 판정·코드 실격을
   번복하지 않는다(실측상 근거 품질·한도가 부족). 켜기 전에 한도(검색 그라운딩 무료 한도가 매우 작음)를 확인한다.
 - **`usage_review.json`은 사람만 고친다** — 봇이 쓰는 `usage_log_*.json`을 직접 편집하면 일일 커밋과 충돌한다.
   `confirmed`에 넣은 사례만 생성 프롬프트의 용례(`USAGE_HINT_MODE=examples`)로 쓰인다.
