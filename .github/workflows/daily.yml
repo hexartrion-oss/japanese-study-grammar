@@ -58,6 +58,9 @@ jobs:
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
           MANUAL_MAIL_TO: ${{ github.event.inputs.mail_to }}
           FORCE_CATEGORY: ${{ github.event.inputs.category }}
+          # 선택 기능 스위치(저장소 Variables에서 설정, 비워 두면 off). 계획: docs/plans/
+          EVIDENCE_MODE: ${{ vars.EVIDENCE_MODE }}        # off | shadow (기록 전용, 번복 없음)
+          USAGE_HINT_MODE: ${{ vars.USAGE_HINT_MODE }}    # off | examples (사람이 확인한 용례만)
         run: python get_grammar.py
 
       - name: Upload artifacts

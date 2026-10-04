@@ -1,0 +1,44 @@
+name: Monthly Failure Report
+
+on:
+  schedule:
+    # 매월 1일 09:00 KST (UTC 00:00) — 전달 말까지의 누적 통계를 담아 보낸다.
+    - cron: "0 0 1 * *"
+  workflow_dispatch: {}
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Japanese font
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-cjk
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+        run: python monthly_report.py
+
+      - name: Upload chart artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monthly-report-chart
+          path: monthly_report_*.png
+          if-no-files-found: ignore
+          retention-days: 90

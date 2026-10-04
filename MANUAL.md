@@ -135,6 +135,15 @@
 - **결과 강제 문형(あげく·ばかりに·ないことには·なくしては·いかんによって) 5개는 하루
   최대 1개만 뽑히도록 고정되어 있다** — 이 로직을 건드리면 문장 수 실패율이 다시
   올라갈 수 있다(실제로 겪었던 문제).
+- **`monthly_report.py`의 요일별 통계는 `_is_real_weekday_match()`로 걸러낸
+  실행만 센다** — 필터를 빼면 `FORCE_CATEGORY`로 임의 요일에 돌린 수동 실행이
+  그 요일의 실패율을 왜곡한다(2026-09-13 일요일 `부사` 수동 실행 사례). 카테고리별
+  통계는 반대로 필터링하지 않는다 — 그쪽은 수동 실행도 그 카테고리의 실제
+  신호이기 때문이다. 두 통계의 필터링 기준이 다른 건 의도된 설계지 실수가
+  아니다.
+- **`_pattern_fail_counts()`의 `window=None`(전체 누적)은 `find_repeat_offenders()`의
+  `window=settings.failure_repeat_window`(최근 5회)와 다른 용도다** — 월간
+  리포트용 누적 집계를 반복 경고 임계값 계산에 섞어 쓰지 않는다.
 - **강조·역접의 저구조 위험군(さえ·こそ·すら·だって·までも·なんて·だけに·ものの) 8개는
   하루 최대 `settings.low_structure_cap`(기본 2)개까지만 뽑히도록 제한돼 있다** —
   2026-09-9·9-16·9-23 강조·역접 3연패의 실제 원인이었다(문장 구조를 강제하지 않는
@@ -231,6 +240,17 @@
   `retry_feedback`을 반드시 `None`으로 초기화한다. 초기화하지 않으면 이전
   조합에서 실패한 문형 id를 새 조합에 붙여 의미 없는 피드백을 준다.
 
+- **활용형 허용에 정중체를 넣지 않는다** — `_TERM_VARIANTS`는 평서체 활용형만 받는다. 〜ませんでした 등을
+  받으면 문체 고정(규칙 7) 위반 지문이 "문형 누락"이 아니라 통과로 흘러간다.
+  (`tests/test_validator_battery.py`의 `test_polite_forms_stay_rejected`가 막는다)
+- **어휘 목록을 고칠 때는 자연문·비문 양방향 테스트를 같이 추가한다** — 목록을 넓히면 오탈락이 줄지만
+  오통과가 늘 수 있다. 문장은 `tests/test_validator_battery.py`에 쌓고, 규칙을 바꾸면 `RULES_VERSION`을 올린다.
+  정규화(事→こと 등)가 목록 단어를 바꾼다는 점에 주의(「事故」→「こと故」).
+- **증거 검증은 기록 전용이다** — `EVIDENCE_MODE`는 off|shadow만 받는다. 검색 근거로 판정·코드 실격을
+  번복하지 않는다(실측상 근거 품질·한도가 부족). 켜기 전에 한도(검색 그라운딩 무료 한도가 매우 작음)를 확인한다.
+- **`usage_review.json`은 사람만 고친다** — 봇이 쓰는 `usage_log_*.json`을 직접 편집하면 일일 커밋과 충돌한다.
+  `confirmed`에 넣은 사례만 생성 프롬프트의 용례(`USAGE_HINT_MODE=examples`)로 쓰인다.
+
 ---
 
 ## 5. 작업 지시서 작성 원칙
@@ -256,10 +276,17 @@
 | `ports.py` | 주입 대상 정의(Clock·Rng·Llm·Mailer·Store·Vcs·Fonts, Deps 컨테이너) |
 | `adapters.py` | 포트의 실제 구현 — 네트워크·SMTP·git·파일시스템은 여기서만 |
 | `get_grammar.py` | 생성·검증·발송·실패 처리 전체 파이프라인 (Deps를 주입받음) |
+| `monthly_report.py` | 월간 누적 통계 리포트(실패 + 용법·판정·증거 집계·차트·메일) — get_grammar.py와 별도 모듈 |
+| `usage_repository.py` | 용법·판정·증거 기록 저장소(월별 샤드 `usage_log_YYYY-MM.json`, 사람 검토 `usage_review.json`) |
+| `usage_record.py` / `evidence_check.py` | 기록 조립 / 검색 근거 요약(순수 함수) |
+| `tests/test_validator_battery.py` | 자연문·비문 양방향 검증기 회귀 세트(알려진 한계는 expectedFailure) |
 | `tests/fakes.py` | 포트의 가짜 구현 — 테스트에서 네트워크 없이 파이프라인을 돌리기 위함 |
 | `tests/test_pipeline.py` | `python -m unittest discover -s tests`로 실행 |
+| `tests/test_monthly_report.py` | monthly_report.py 전용 테스트 |
 | `used_history.json` | 쿨다운용 사용 이력 (성공한 날만 갱신) |
-| `failure_history.json` | 실패 이력 (실패한 날만 갱신, 반복 경고 판정에 사용) |
+| `failure_history.json` | 실패 이력 (실패한 날만 갱신, 반복 경고 판정·월간 리포트에 사용) |
 | `run_log.txt` | 매 실행의 상세 로그 (Actions 아티팩트로도 다운로드 가능) |
+| `.github/workflows/daily.yml` | 평일 지문 생성·발송 (cron) |
+| `.github/workflows/monthly_report.yml` | 매월 1일 누적 실패 통계 리포트 발송 (cron) |
 | `README.md` | 설계 배경, 왜 이렇게 만들었는지에 대한 상세 기록 |
 | `MANUAL.md` | 이 문서 — 문제 발생 시 즉시 참고할 실전 절차 |
