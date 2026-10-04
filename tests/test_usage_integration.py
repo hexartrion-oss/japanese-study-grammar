@@ -198,5 +198,91 @@ class MainUsageTests(unittest.TestCase):
         self.assertEqual(cases[0]["status"], "candidate")
 
 
+
+class UsageHintTests(unittest.TestCase):
+    """생성 프롬프트에 '사람이 확인한 용례'를 제시하는 경로 — 기본 off, 확인된 사례만 사용."""
+
+    def _deps(self, mode="examples", with_case=True, review=True, **settings):
+        store_initial = {}
+        deps, fakes = make_deps(
+            llm_responses=[_good()], judge_pass=ALL_OK, with_usage=True,
+            settings=ports.Settings(usage_hint_mode=mode, **settings))
+        if with_case:
+            fakes["usage"].add_overturned({
+                "date": "2026-09-10", "pattern": "pat0", "direction": "judge_ng→web_ok",
+                "sentence": "言い争ったあげく、彼は怒って帰ってしまった。"})
+            if review:
+                cid = fakes["usage"].overturned_between(
+                    datetime.date(2026, 9, 1), datetime.date(2026, 9, 30))[0]["id"]
+                fakes["store"].write("usage_review", {"confirmed": [cid]})
+        return deps, fakes
+
+    def _first_gen_prompt(self, deps, fakes):
+        G.generate_passage(deps, _category(), {})
+        return [c for c in fakes["llm"].calls if c["model"] is None][0]["prompt"]
+
+    def test_off_by_default_prompt_has_no_example_section(self):
+        deps, fakes = self._deps(mode="off")
+        self.assertNotIn("参考用例", self._first_gen_prompt(deps, fakes))
+
+    def test_confirmed_example_is_shown_when_enabled(self):
+        deps, fakes = self._deps()
+        prompt = self._first_gen_prompt(deps, fakes)
+        self.assertIn("参考用例", prompt)
+        self.assertIn("言い争ったあげく", prompt)
+        self.assertIn("真似", prompt)                      # 베끼지 말라는 지시가 같이 간다
+
+    def test_unconfirmed_candidate_is_never_shown(self):
+        deps, fakes = self._deps(review=False)
+        self.assertNotIn("参考用例", self._first_gen_prompt(deps, fakes))
+
+    def test_hint_count_is_capped(self):
+        deps, fakes = self._deps(usage_hint_max=0)
+        self.assertNotIn("参考用例", self._first_gen_prompt(deps, fakes))
+
+    def test_judge_prompt_never_receives_examples(self):
+        deps, fakes = self._deps()
+        G.generate_passage(deps, _category(), {})
+        judge_prompts = [c["prompt"] for c in fakes["llm"].calls if c["model"] is not None]
+        self.assertTrue(judge_prompts)
+        self.assertTrue(all("参考用例" not in p for p in judge_prompts))
+
+    def test_reader_failure_degrades_to_no_hints(self):
+        deps, fakes = self._deps()
+
+        class Broken:
+            def confirmed_cases(self, pid):
+                raise OSError("x")
+        import dataclasses
+        deps = dataclasses.replace(deps, usage_reader=Broken())
+        self.assertNotIn("参考用例", self._first_gen_prompt(deps, fakes))
+
+
+
+class RealStoreSmokeTests(unittest.TestCase):
+    """실제 JsonFileStore(임시 디렉터리)로 main()을 끝까지 돌려 파일이 유효한 JSON으로 남는지 본다."""
+
+    def test_main_writes_valid_usage_shard_to_disk(self):
+        import dataclasses
+        import json
+        import tempfile
+
+        import adapters
+        from usage_repository import JsonUsageRepository
+        with tempfile.TemporaryDirectory() as tmp:
+            deps, fakes = make_deps(llm_responses=[_full_passage("부사")], run_id="1")
+            store = adapters.JsonFileStore(tmp, deps.log)
+            repo = JsonUsageRepository(store, first_month="2026-09",
+                                       today_fn=lambda: datetime.date(2026, 9, 30))
+            deps = dataclasses.replace(deps, store=store, usage=repo, usage_reader=repo)
+            self.assertTrue(G.main(deps))
+            path = Path(tmp) / "usage_log_2026-09.json"
+            self.assertTrue(path.exists())
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(data["runs"][0]["result"], "passed")
+            self.assertIn("passage", data["runs"][0])
+            self.assertTrue((Path(tmp) / "used_history.json").exists())   # 기존 이력도 그대로 기록
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -466,6 +466,54 @@ Actions 목록에서 바로 보이고, 메일로도 알림이 온다.
 월간 집계를 막아서도 안 된다. 이력 파일을 읽기만 하고 아무것도 커밋하지
 않으므로 `contents: write` 권한도 필요 없다(daily.yml과의 차이).
 
+## 활용형 허용, 용법 기록, 증거 shadow, 용례 힌트 (2026-10-04)
+
+2026-10-03 감사(`docs/plans/2026-10-03_audit.md`, 계획은 `docs/plans/2026-10-03_evidence-and-validator-plan.md`)
+결과를 반영한 변경이다. **요약: 실패의 약 6할은 Gemini가 문형을 빠뜨리거나 잘못 쓴 것이고,
+검증기는 별도로 정상 문장을 오탈락시키고 있었다.**
+
+### 활용형·표기 변형 허용 (`_TERM_VARIANTS`)
+
+문형 id는 사전형(〜ない・〜ある)인데 지문은 과거·부정 활용형으로 쓴다
+(「涙を禁じ得なかった」「きらいがあった」). 리터럴 매칭만 하면 "문형 누락"으로 오판했다.
+`_locate()`가 문형 term의 평서체 활용형과 같은 문법 항목의 표기 변형(なりに/なりの,
+と相まって/とが相まって, に伴って/にともなって)을 인정한다. **정중체(〜ませんでした)는 일부러
+인정하지 않는다** — 문체 고정(규칙 7)을 어긴 지문을 이쪽이 가리면 안 된다.
+어휘 목록(`_HARDSHIP_WORDS` 등)도 정상 문장이 탈락한 사례를 보강했다. 주의: 정규화가 事→こと로
+바꾸므로 「事故」는 목록에 「こと故」로 등록한다. 한계는 `tests/test_validator_battery.py`에
+`expectedFailure`로 남겨 두었다(くせに 비판어 창, あげく 뒤 「結局」 오통과). 규칙을 바꿀 때마다
+`RULES_VERSION`을 올린다.
+
+### 용법 기록 (`UsageRepository`)
+
+GitHub 리포가 아니라 기존 `Store`를 쓰는 데이터 저장소다. 월별 샤드 `usage_log_YYYY-MM.json`에
+실행 1회당 한 건(통과·실패 모두)을 남긴다: 시도별 **판정 상태**(ran / call_failed / parse_partial /
+parse_failed), 판정 NG 이유, 통과 지문 전문과 문형별 용례 문장, 규칙 버전, 실행 id.
+`(date, run_id)`가 같으면 덮어써서 재실행이 기록을 부풀리지 않는다. 기록 실패는 발송을 막지 않는다.
+사람이 쓰는 `usage_review.json`(`{"confirmed": [id], "vetoed": [id]}`)은 봇이 쓰지 않는다 — 봇의
+일일 커밋과 충돌하지 않게 분리했다.
+
+### 증거 shadow (`EVIDENCE_MODE=shadow`, 기본 off)
+
+판정 NG·코드 구조 실격 문형에 대해 Gemini 검색 그라운딩(2.5-flash)으로 근거를 조회해 **기록만**
+한다. 번복(enforce)은 구현하지 않았다. 실측(2026-10-03)으로 확인된 제약: 3.5-flash 그라운딩은 429,
+2.5도 무료 한도가 한 자릿수~십여 회 수준, 호출 평균 30초(최대 107초), 학술·신문 도메인 출처가 2건
+이상 나오는 경우는 15회 중 1회, 모델이 적는 출처 종류는 신뢰 불가(그래서 적격 판정은 코드가 도메인으로
+한다). 그래서 실행당 호출 상한(`evidence_daily_cap=3`)과 429 시 중단, 호출당 타임아웃을 둔다.
+「판정 NG → 웹 자연」 후보는 `candidate`로만 쌓이고, 사람이 `usage_review.json`에서 확인해야
+`confirmed`가 된다.
+
+### 용례 힌트 (`USAGE_HINT_MODE=examples`, 기본 off)
+
+`confirmed`된 `judge_ng→web_ok` 사례의 문장을 생성 프롬프트에 `【参考用例】`로 제시한다
+(문형당 1개, 하루 최대 `usage_hint_max`개, 베끼지 말라는 지시 포함). 판정 프롬프트에는 넣지 않는다.
+
+### 스위치
+
+`daily.yml`이 저장소 Variables `EVIDENCE_MODE`(off|shadow)와 `USAGE_HINT_MODE`(off|examples)를
+읽는다. 비우면 모두 off(기존 동작과 동일). 월간 리포트는 용법 기록이 있으면 판정 가동률·증거 현황·
+검토 대기 후보를 같은 메일·같은 PNG에 덧붙인다.
+
 ## 문형 조합 충돌 방지
 
 `ないことには`, `なくしては`, `いかんによって`, `あげく`, `ばかりに`처럼 **뒷문장에 특정
@@ -562,7 +610,11 @@ adapters.py       ports.py의 실제(운영) 구현 — 네트워크·SMTP·git�
                   전부 여기서만 일어난다
 get_grammar.py    카테고리 선정 → 쿨다운 필터링 → 지문 생성 → 검증 → 발송 → 이력 커밋.
                   Deps를 주입받아 동작하며, import만으로는 어떤 부작용도 없다
-tests/            fakes.py(가짜 포트 구현) + test_pipeline.py(전체 파이프라인 테스트)
+usage_repository.py  용법·판정·증거 기록 저장소(월별 샤드) / usage_record.py 기록 조립(순수 함수)
+evidence_check.py    검색 근거 요약·도메인 적격 판정(순수 함수)
+monthly_report.py    월간 누적 통계 리포트(실패 + 용법·판정·증거)
+tests/            fakes.py(가짜 포트 구현) + test_pipeline.py(전체 파이프라인 테스트) +
+                  test_validator_battery.py(자연문·비문 양방향 회귀) 등
 ```
 
 ### 왜 의존성을 주입하는가

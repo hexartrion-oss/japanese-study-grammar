@@ -10,6 +10,7 @@ main() → build_production_deps() → 파이프라인이다.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import glob
 import json
@@ -354,6 +355,20 @@ def load_run_mode(env: dict | None = None) -> ports.RunMode:
     )
 
 
+def apply_env_overrides(settings: ports.Settings, env: dict | None = None) -> ports.Settings:
+    """워크플로 환경변수로 선택 기능을 켜고 끈다(코드 수정·배포 없이). 허용 값만 받는다 —
+    특히 EVIDENCE_MODE=enforce는 구현이 없으므로 무시해 기본(off)으로 둔다."""
+    env = env if env is not None else os.environ
+    changes = {}
+    mode = env.get("EVIDENCE_MODE", "").strip()
+    if mode in ("off", "shadow"):
+        changes["evidence_mode"] = mode
+    hint = env.get("USAGE_HINT_MODE", "").strip()
+    if hint in ("off", "examples"):
+        changes["usage_hint_mode"] = hint
+    return dataclasses.replace(settings, **changes) if changes else settings
+
+
 def build_production_deps(base_dir: str, settings: ports.Settings | None = None) -> ports.Deps:
     """운영용 Deps 조립. main()에서만 호출한다."""
     if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
@@ -362,7 +377,7 @@ def build_production_deps(base_dir: str, settings: ports.Settings | None = None)
     log = FileLogger(os.path.join(base_dir, "run_log.txt"))
     secrets = load_secrets(base_dir=base_dir)
     mode = load_run_mode()
-    settings = settings or ports.Settings()
+    settings = apply_env_overrides(settings or ports.Settings())
     clock = SystemClock()
     store = JsonFileStore(base_dir, log)
     usage = JsonUsageRepository(store, first_month=settings.usage_start_month,

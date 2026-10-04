@@ -82,5 +82,27 @@ class EvidenceAdapterTests(unittest.TestCase):
         self.assertTrue(seen["config"].tools)
 
 
+
+class EnvOverrideTests(unittest.TestCase):
+    """EVIDENCE_MODE / USAGE_HINT_MODE로 코드 변경 없이 켜고 끈다 — 잘못된 값은 무시(안전한 쪽 유지)."""
+
+    def test_defaults_stay_off_without_env(self):
+        import ports
+        s = adapters.apply_env_overrides(ports.Settings(), {})
+        self.assertEqual((s.evidence_mode, s.usage_hint_mode), ("off", "off"))
+
+    def test_valid_values_apply(self):
+        import ports
+        s = adapters.apply_env_overrides(
+            ports.Settings(), {"EVIDENCE_MODE": "shadow", "USAGE_HINT_MODE": "examples"})
+        self.assertEqual((s.evidence_mode, s.usage_hint_mode), ("shadow", "examples"))
+
+    def test_enforce_and_garbage_are_ignored(self):
+        import ports
+        s = adapters.apply_env_overrides(
+            ports.Settings(), {"EVIDENCE_MODE": "enforce", "USAGE_HINT_MODE": "yes"})
+        self.assertEqual((s.evidence_mode, s.usage_hint_mode), ("off", "off"))
+
+
 if __name__ == "__main__":
     unittest.main()

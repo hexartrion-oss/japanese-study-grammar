@@ -240,6 +240,17 @@
   `retry_feedback`을 반드시 `None`으로 초기화한다. 초기화하지 않으면 이전
   조합에서 실패한 문형 id를 새 조합에 붙여 의미 없는 피드백을 준다.
 
+- **활용형 허용에 정중체를 넣지 않는다** — `_TERM_VARIANTS`는 평서체 활용형만 받는다. 〜ませんでした 등을
+  받으면 문체 고정(규칙 7) 위반 지문이 "문형 누락"이 아니라 통과로 흘러간다.
+  (`tests/test_validator_battery.py`의 `test_polite_forms_stay_rejected`가 막는다)
+- **어휘 목록을 고칠 때는 자연문·비문 양방향 테스트를 같이 추가한다** — 목록을 넓히면 오탈락이 줄지만
+  오통과가 늘 수 있다. 문장은 `tests/test_validator_battery.py`에 쌓고, 규칙을 바꾸면 `RULES_VERSION`을 올린다.
+  정규화(事→こと 등)가 목록 단어를 바꾼다는 점에 주의(「事故」→「こと故」).
+- **증거 검증은 기록 전용이다** — `EVIDENCE_MODE`는 off|shadow만 받는다. 검색 근거로 판정·코드 실격을
+  번복하지 않는다(실측상 근거 품질·한도가 부족). 켜기 전에 한도(검색 그라운딩 무료 한도가 매우 작음)를 확인한다.
+- **`usage_review.json`은 사람만 고친다** — 봇이 쓰는 `usage_log_*.json`을 직접 편집하면 일일 커밋과 충돌한다.
+  `confirmed`에 넣은 사례만 생성 프롬프트의 용례(`USAGE_HINT_MODE=examples`)로 쓰인다.
+
 ---
 
 ## 5. 작업 지시서 작성 원칙
@@ -265,7 +276,10 @@
 | `ports.py` | 주입 대상 정의(Clock·Rng·Llm·Mailer·Store·Vcs·Fonts, Deps 컨테이너) |
 | `adapters.py` | 포트의 실제 구현 — 네트워크·SMTP·git·파일시스템은 여기서만 |
 | `get_grammar.py` | 생성·검증·발송·실패 처리 전체 파이프라인 (Deps를 주입받음) |
-| `monthly_report.py` | 월간 누적 실패 통계 리포트(집계·차트·메일) — get_grammar.py와 별도 모듈 |
+| `monthly_report.py` | 월간 누적 통계 리포트(실패 + 용법·판정·증거 집계·차트·메일) — get_grammar.py와 별도 모듈 |
+| `usage_repository.py` | 용법·판정·증거 기록 저장소(월별 샤드 `usage_log_YYYY-MM.json`, 사람 검토 `usage_review.json`) |
+| `usage_record.py` / `evidence_check.py` | 기록 조립 / 검색 근거 요약(순수 함수) |
+| `tests/test_validator_battery.py` | 자연문·비문 양방향 검증기 회귀 세트(알려진 한계는 expectedFailure) |
 | `tests/fakes.py` | 포트의 가짜 구현 — 테스트에서 네트워크 없이 파이프라인을 돌리기 위함 |
 | `tests/test_pipeline.py` | `python -m unittest discover -s tests`로 실행 |
 | `tests/test_monthly_report.py` | monthly_report.py 전용 테스트 |

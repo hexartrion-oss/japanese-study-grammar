@@ -267,8 +267,31 @@ def append_history(deps: ports.Deps, history: dict, category_key: str,
 
 
 # ── Gemini 호출 ────────────────────────────────────────
+def collect_usage_hints(deps: ports.Deps, patterns: list) -> dict:
+    """{문형 id: 용례 문장} — **사람이 confirmed로 확인한** `judge_ng→web_ok` 사례만, 문형당 1개.
+
+    기본 off(usage_hint_mode). 자동 승격은 없다: 검색 근거가 틀려 번복된 사례가 용례로 되먹임되면
+    같은 오류가 다음 생성에 퍼진다(계획 §4). 읽기 실패·데이터 없음이면 빈 dict — 현재와 동일하게 동작."""
+    st = deps.settings
+    if st.usage_hint_mode != "examples" or deps.usage_reader is None or st.usage_hint_max <= 0:
+        return {}
+    pick = deps.clock.now_utc().date().toordinal()   # 같은 날 재시도는 같은 용례, 날마다 순환
+    hints: dict = {}
+    for p in patterns:
+        if len(hints) >= st.usage_hint_max:
+            break
+        try:
+            cases = deps.usage_reader.confirmed_cases(p.id)
+        except Exception as e:  # noqa: BLE001 — 힌트는 선택 기능이라 실패해도 생성은 계속한다
+            deps.log(f"[용법힌트] 읽기 실패 — 힌트 없이 진행: {e}")
+            return {}
+        if cases:
+            hints[p.id] = cases[pick % len(cases)]["sentence"]
+    return hints
+
+
 def build_prompt(deps: ports.Deps, patterns: list, level_tag: str,
-                 missing: list = None) -> str:
+                 missing: list = None, hints: dict = None) -> str:
     """missing: 직전 시도에서 검증에 실패한 문형 id 목록. 같은 조합으로
     재시도할 때만 넘긴다 — 조합을 바꾼 시도에 넘기면 이미 빠진 문형 얘기라
     의미가 없다. 실패 사유를 알려줘야 Gemini가 다음 시도에서 정확한 형태
@@ -283,6 +306,11 @@ def build_prompt(deps: ports.Deps, patterns: list, level_tag: str,
         else:
             lines.append(f"- {p.id}")
     pattern_list = "\n".join(lines)
+    hint_note = ""
+    if hints:
+        hint_note = ("\n\n【参考用例】以下は文法的に自然と確認済みの用例です。文型の使い方の参考に"
+                     "するだけで、文や内容をそのまま真似せず、別の場面・語彙で書くこと。\n"
+                     + "\n".join(f"- {pid}: {sentence}" for pid, sentence in hints.items()))
     retry_note = ""
     if missing:
         retry_note = ("\n\n【前回の失敗】前回の生成では、以下の文型が正確な形で"
@@ -303,7 +331,7 @@ def build_prompt(deps: ports.Deps, patterns: list, level_tag: str,
 6. 説明、翻訳、注釈、箇条書き、記号、マークダウンの装飾は一切書かない。特に「**」のような強調記号は絶対に使わない(文型を目立たせる目的で強調するのは厳禁)。読み物本文だけを、装飾のない平文で書く
 7. 文体は必ず「だ・である」体(普通体)で統一すること。「です・ます」体(丁寧体)は一切使わない
 8. 暴力・犯罪・死亡・宗教・政治的に偏った内容は避ける
-9. 見出しは内容だけを表すこと(文法カテゴリーが分かるような単語は使わない){retry_note}"""
+9. 見出しは内容だけを表すこと(文法カテゴリーが分かるような単語は使わない){hint_note}{retry_note}"""
 
 
 def _strip_markdown_decoration(text: str) -> str:
@@ -864,6 +892,7 @@ def _attempt_record(attempt: int, temperature: float, patterns: list, outcome: s
 
 def generate_passage(deps: ports.Deps, category: dict, history: dict, attempt_sink: list | None = None):
     patterns = select_patterns(deps, category, history)
+    hints = collect_usage_hints(deps, patterns)
     temperatures = [0.7, 0.6, 0.4, 0.2]
     attempts_log = []  # 실패 알림 메일에 그대로 실릴 시도별 진단 정보
     shadow_log = []     # 코드 검증 vs LLM 판정 불일치 기록 (발송 여부에 영향 없음)
@@ -885,8 +914,9 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict, attempt_si
             patterns = select_patterns(deps, category, history,
                                        exclude_ids={p.id for p in patterns})
             retry_feedback = None  # 조합이 바뀌었으니 이전 피드백은 무의미하다
+            hints = collect_usage_hints(deps, patterns)
         prompt = build_prompt(deps, patterns, category["level_tag"],
-                              missing=retry_feedback)
+                              missing=retry_feedback, hints=hints)
         raw = deps.llm.generate(prompt, temperatures[attempt])
         topic, passage = parse_gemini_output(raw)
         ok, reason, problem_ids = (validate_passage(deps, passage, patterns) if passage
