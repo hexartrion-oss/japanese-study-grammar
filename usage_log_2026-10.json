@@ -325,7 +325,192 @@
           "sentence": "しかし、あの母親といっても、やはり子を持つ親なのだ。"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-10-08",
+      "category": "비즈니스",
+      "result": "passed",
+      "run_id": "37818213153",
+      "commit_sha": "15591c1758cf68dfe555bde0782f9fef283ed539",
+      "manual": false,
+      "rules_version": "2026-10-04-p1",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "ないことには",
+        "上で",
+        "末に",
+        "に沿って",
+        "ことから"
+      ],
+      "attempts_count": 4,
+      "judge_summary": {
+        "ran": 4
+      },
+      "final_judge_status": "ran",
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "ばかりに",
+            "ことなく",
+            "に関しては",
+            "を中心に",
+            "にわたって"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: ことなく, を中心に",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {
+            "を中心に": "本文中に該当の文型が使用されていません。"
+          },
+          "code_problem_ids": [],
+          "evidence": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "ばかりに",
+            "ことなく",
+            "に関しては",
+            "を中心に",
+            "にわたって"
+          ],
+          "outcome": "failed",
+          "reason": "구조 조건 미충족: ばかりに",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [
+            "ばかりに"
+          ],
+          "evidence": [
+            {
+              "pattern": "ばかりに",
+              "source": "code",
+              "sentence": "その心配ばかりに気を取られ、パスポートの有効期限を確認することなく空港へ向かってしまったのだ。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 18.8,
+              "n_sources": 2,
+              "n_qualified": 1,
+              "hosts": [
+                "kotobank.jp",
+                "nii.ac.jp"
+              ],
+              "classes": [
+                "other",
+                "academic"
+              ],
+              "verdict": "natural",
+              "basis": "ある行為や状況が唯一の原因となり、悪い結果を招くことを表すため。"
+            }
+          ]
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "ないことには",
+            "上で",
+            "末に",
+            "に沿って",
+            "ことから"
+          ],
+          "outcome": "failed",
+          "reason": "구조 조건 미충족: ないことには",
+          "judge_status": "ran",
+          "judge_failed": [
+            "ないことには"
+          ],
+          "judge_notes": {
+            "ないことには": "文末が否定形（〜ない／〜できない）の結論で終わっていないため。"
+          },
+          "code_problem_ids": [
+            "ないことには"
+          ],
+          "evidence": [
+            {
+              "pattern": "ないことには",
+              "source": "code",
+              "sentence": "この状況を打開しないことには、いつかまた同じ失敗を繰り返してしまうだろうと彼は思った。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 64.0,
+              "n_sources": 0,
+              "n_qualified": 0,
+              "hosts": [],
+              "classes": [],
+              "verdict": "unknown",
+              "basis": "適切な出典種別（論文、記事、寄稿）の用例が見つからなかったため。"
+            }
+          ]
+        },
+        {
+          "attempt": 4,
+          "temperature": 0.2,
+          "patterns": [
+            "ないことには",
+            "上で",
+            "末に",
+            "に沿って",
+            "ことから"
+          ],
+          "outcome": "passed",
+          "reason": "",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": []
+        }
+      ],
+      "topic": "新しい挑戦の始まり",
+      "passage": "長年勤めた会社を辞め、独立を決意した。新しい事業を始める上で、まず何から手をつけるべきか、毎日頭を悩ませた。市場調査を徹底的に行い、競合他社の動向を分析した末に、ようやく具体的な事業計画を立てることができた。しかし、計画を立てたところで、資金がなければ何も始まらない。融資を受けるため、複数の銀行を回ったが、どこも難色を示した。「この計画では、成功する見込みがないことには、融資はできない」と、ある銀行の担当者は冷たく言い放った。彼の言葉は、私の甘い考えを打ち砕くには十分だった。私は、自分の計画が客観的に見てどれほど未熟であったかを痛感した。そこから、私は計画を根本から見直し、より現実的で実現可能なものへと修正していった。専門家の意見にも耳を傾け、彼らのアドバイスに沿って、事業の細部まで練り直した。その結果、以前よりもはるかに説得力のある事業計画が完成した。この熱意が伝わったことから、最終的には一つの銀行から融資を受けることができた。ようやくスタートラインに立てた今、これまでの苦労が報われるよう、全力で事業に取り組む決意を新たにした。",
+      "usages": [
+        {
+          "pattern": "ないことには",
+          "sentence": "「この計画では、成功する見込みがないことには、融資はできない」と、ある銀行の担当者は冷たく言い放った。"
+        },
+        {
+          "pattern": "上で",
+          "sentence": "新しい事業を始める上で、まず何から手をつけるべきか、毎日頭を悩ませた。"
+        },
+        {
+          "pattern": "末に",
+          "sentence": "市場調査を徹底的に行い、競合他社の動向を分析した末に、ようやく具体的な事業計画を立てることができた。"
+        },
+        {
+          "pattern": "に沿って",
+          "sentence": "専門家の意見にも耳を傾け、彼らのアドバイスに沿って、事業の細部まで練り直した。"
+        },
+        {
+          "pattern": "ことから",
+          "sentence": "この熱意が伝わったことから、最終的には一つの銀行から融資を受けることができた。"
+        }
+      ]
     }
   ],
-  "overturned": []
+  "overturned": [
+    {
+      "date": "2026-10-08",
+      "pattern": "ばかりに",
+      "sentence": "その心配ばかりに気を取られ、パスポートの有効期限を確認することなく空港へ向かってしまったのだ。",
+      "direction": "code_ng→web_ok",
+      "judge_note": null,
+      "web_basis": "ある行為や状況が唯一の原因となり、悪い結果を招くことを表すため。",
+      "hosts": [
+        "kotobank.jp",
+        "nii.ac.jp"
+      ],
+      "n_qualified": 1,
+      "run_id": "37818213153",
+      "id": "2026-10-08-ばかりに-code_ng→web_ok",
+      "status": "candidate"
+    }
+  ]
 }
