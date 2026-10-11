@@ -218,7 +218,7 @@ GitHub Actions 워크플로는 `0 11 * * 1-5`(UTC 11:00 = KST 20:00) cron으로 
 판정은 문형 5개의 문법만 본다. 문형 밖 오류(예: 「暖かいコーヒー」→「温かい」)는 세 겹으로 다룬다.
 (C) 생성 프롬프트 규칙 10의 주의문, (B) `_CONFUSIONS` 결정적 규칙(확실히 틀린 조합만, 걸리면 "어휘 혼동"으로
 재시도), (A) `PROOFREAD_MODE=shadow` 교정 패스(`proofread_check.py`) — 별도 호출로 오류 후보를 받아
-`usage_log` 시도 기록의 `proofread`에 **기록만** 하고 합격 판정에는 쓰지 않는다(기본 off, 실행당 2회,
+`usage_log` 시도 기록의 `proofread`에 **기록만** 하고 합격 판정에는 쓰지 않는다(기본 shadow — 끄려면 Variables `PROOFREAD_MODE=off`, 실행당 2회,
 모델 `gemini-2.5-flash-lite`). 몇 주 쌓인 뒤 사람이 진짜/오탐을 라벨링해 합격 조건 편입 여부를 정한다.
 
 ## 자연스러움 판정 (LLM 교차 검증)
