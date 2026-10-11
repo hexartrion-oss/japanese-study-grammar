@@ -25,6 +25,7 @@ from fpdf.enums import XPos, YPos
 from janome.tokenizer import Tokenizer
 
 import evidence_check as EC
+import proofread_check as PC
 import grammar_bank as GB
 import ports
 import usage_record as UR
@@ -334,7 +335,8 @@ def build_prompt(deps: ports.Deps, patterns: list, level_tag: str,
 6. 説明、翻訳、注釈、箇条書き、記号、マークダウンの装飾は一切書かない。特に「**」のような強調記号は絶対に使わない(文型を目立たせる目的で強調するのは厳禁)。読み物本文だけを、装飾のない平文で書く
 7. 文体は必ず「だ・である」体(普通体)で統一すること。「です・ます」体(丁寧体)は一切使わない
 8. 暴力・犯罪・死亡・宗教・政治的に偏った内容は避ける
-9. 見出しは内容だけを表すこと(文法カテゴリーが分かるような単語は使わない){hint_note}{retry_note}"""
+9. 見出しは内容だけを表すこと(文法カテゴリーが分かるような単語は使わない)
+10. 語彙の選択に注意すること。特に、飲み物・食べ物・人の気持ちや手の温度は「温かい」、気温・天気・部屋・衣服は「暖かい」を使う(例: 温かいコーヒー、暖かい部屋){hint_note}{retry_note}"""
 
 
 def _strip_markdown_decoration(text: str) -> str:
@@ -720,11 +722,28 @@ def validate_passage(deps: ports.Deps, passage: str, patterns: list):
         reason = f"구조 조건 미충족: {', '.join(structural_fail)}"
         deps.log(f"[검증] {reason}")
         return False, reason, structural_fail
+    confusions = check_vocab_confusions(passage)
+    if confusions:
+        reason = f"어휘 혼동: {', '.join(confusions)}"
+        deps.log(f"[검증] {reason}")
+        return False, reason, []
     return True, "", []
 
 
+# 흔한 어휘 혼동(결정적 규칙). 오탐을 피하려고 "확실히 틀린 조합"만 등록한다.
+# 「暖かい」는 기온·공간의 온기용이라 음료·음식에는 「温かい」를 쓴다(2026-10-11 3-flash 지문 「暖かいコーヒー」).
+_FOOD_DRINK = "コーヒー|お茶|紅茶|スープ|味噌汁|みそ汁|ミルク|飲み物|料理|ご飯|ごはん|食事|鍋|お湯|ココア|牛乳|うどん|ラーメン"
+_CONFUSIONS = [
+    (re.compile(rf"暖か(?:い|く|な)(?:お)?(?:{_FOOD_DRINK})"), "暖かい→温かい(음료·음식)"),
+]
+
+
+def check_vocab_confusions(passage: str) -> list:
+    return [label for rx, label in _CONFUSIONS if rx.search(passage)]
+
+
 # 검증 규칙 버전 — 규칙을 바꿀 때마다 올린다. 용법 기록에 함께 남아 개정 전후 통계를 가른다.
-RULES_VERSION = "2026-10-04-p1"
+RULES_VERSION = "2026-10-11-p2"
 
 
 # ── 자연스러움 판정 (LLM 교차 검증) ───────────────────────────
@@ -879,7 +898,7 @@ def _run_evidence_shadow(deps: ports.Deps, passage: str, patterns: list, flagged
 
 def _attempt_record(attempt: int, temperature: float, patterns: list, outcome: str, reason: str,
                     judge_status, judgment, code_problem_ids: list, evidence: list,
-                    gen_model=None) -> dict:
+                    gen_model=None, proofread=None) -> dict:
     notes_valid = judge_status in ("ran", "parse_partial")
     return {
         "attempt": attempt,
@@ -894,6 +913,7 @@ def _attempt_record(attempt: int, temperature: float, patterns: list, outcome: s
         "code_problem_ids": list(code_problem_ids),
         "evidence": evidence,
         "gen_model": gen_model if isinstance(gen_model, str) else None,
+        "proofread": proofread,   # None=미실행, []=오류 없음, [..]=후보(합격 판정에 쓰지 않음)
     }
 
 
@@ -911,6 +931,7 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict, attempt_si
     sink = attempt_sink if attempt_sink is not None else []   # 시도별 기록(통과·실패 모두)
     evidence_active = deps.settings.evidence_mode == "shadow" and deps.evidence is not None
     evidence_state = {"calls": 0, "stopped": False}
+    proofread_calls = 0
     for attempt in range(deps.settings.max_gen_attempts):
         if attempt == 2:
             # 두 번 실패하면 문형 조합 자체를 바꿔서 재시도. 직전 조합을
@@ -975,10 +996,21 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict, attempt_si
                     flagged.append((source, pid))
             evidence_records = _run_evidence_shadow(deps, passage, patterns, flagged, evidence_state)
 
+        # 교정 패스(shadow): 문형 밖 어휘·표기 오류를 별도 호출로 보고받아 기록만 한다.
+        proofread = None
+        if (passage and deps.settings.proofread_mode == "shadow"
+                and proofread_calls < deps.settings.proofread_daily_cap):
+            proofread_calls += 1
+            proofread = PC.parse(deps.llm.generate(
+                PC.build_prompt(passage), 0.0, model=deps.settings.proofread_model))
+            if proofread:
+                deps.log("[교정] 문형 밖 오류 후보 " + ", ".join(
+                    f"{x['wrong']}→{x['right']}" for x in proofread))
+
         sink.append(_attempt_record(
             attempt + 1, temperatures[attempt], patterns, "passed" if ok else "failed",
             "" if ok else reason, judge_status, judgment, code_structural_ids, evidence_records,
-            gen_model))
+            gen_model, proofread))
 
         if ok:
             deps.log(f"[생성] {attempt + 1}번째 시도에서 성공")

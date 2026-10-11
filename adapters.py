@@ -393,6 +393,9 @@ def apply_env_overrides(settings: ports.Settings, env: dict | None = None) -> po
     mode = env.get("EVIDENCE_MODE", "").strip()
     if mode in ("off", "shadow"):
         changes["evidence_mode"] = mode
+    pr = env.get("PROOFREAD_MODE", "").strip()
+    if pr in ("off", "shadow"):
+        changes["proofread_mode"] = pr
     hint = env.get("USAGE_HINT_MODE", "").strip()
     if hint in ("off", "examples"):
         changes["usage_hint_mode"] = hint

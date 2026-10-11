@@ -92,6 +92,9 @@ class Settings:
     evidence_min_qualified: int = 1      # 학술·신문 도메인 출처가 이 수 이상이어야 "적격"
     usage_hint_mode: str = "off"         # off | examples — 사람이 확인한 용례만 생성 프롬프트에 제시
     usage_hint_max: int = 2              # 하루 프롬프트에 넣는 힌트 문형 수 상한
+    proofread_mode: str = "off"          # off | shadow — 문형 밖 어휘·표기 오류 보고(기록 전용)
+    proofread_model: str = "gemini-2.5-flash-lite"   # 판정(3.x)·생성 주력(2.5-flash)과 쿼터를 나눠 쓰지 않으려 lite
+    proofread_daily_cap: int = 2         # 실행당 교정 호출 상한
 
     @property
     def cooldown_bypass_threshold(self) -> int:
