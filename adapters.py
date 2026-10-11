@@ -40,8 +40,13 @@ except ImportError:
 
 KST = ZoneInfo("Asia/Seoul")
 
-# 생성 모델 폴백 순서. 앞에서부터 시도하고, 실패하면 다음으로 넘어간다.
-GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash"]
+# 생성 모델 폴백 순서. 앞에서부터 시도하고, 실패(API 오류·빈 응답)하면 다음으로 넘어간다.
+# 검증 실패(문형 누락 등)로는 모델이 바뀌지 않는다. 3.5는 2026-10-08부로 deprecated이고
+# 3.6으로 자동 라우팅되므로 3.5와 3.6은 같은 백엔드일 수 있다 — 3.5 종료가 확인되면 3.5를 뺀다.
+GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview",
+                 "gemini-3.5-flash", "gemini-3.6-flash"]
+GENERATE_TIMEOUT_MS = 90_000        # 호출당 타임아웃
+GENERATE_WAIT_BUDGET_S = 180        # generate() 한 번에서 쓰는 429/503 대기 합계 상한
 
 
 # ── 시계 ───────────────────────────────────────────────
@@ -90,40 +95,65 @@ class GeminiLlm:
         self.log = log
         self.models = list(models)
         self._sleep = sleep      # 테스트에서 실제로 기다리지 않도록 주입 가능
+        self.last_model = None   # 마지막 호출에서 실제로 응답한 모델 id(없으면 None)
 
     def generate(self, prompt: str, temperature: float,
                  model: str | None = None, max_output_tokens: int = 2200) -> str:
         if not GEMINI_AVAILABLE or not self.api_key:
             return ""
         client = google_genai.Client(api_key=self.api_key)
+        self.last_model = None
+        waited = 0   # 이번 호출에서 대기한 초 — 상한을 넘으면 더 기다리지 않고 다음 모델로 간다
+
+        def wait(sec: int) -> bool:
+            nonlocal waited
+            if waited + sec > GENERATE_WAIT_BUDGET_S:
+                return False
+            waited += sec
+            self._sleep(sec)
+            return True
+
         for model_id in ([model] if model else self.models):
             for attempt in range(2):
                 try:
                     cfg = {"temperature": temperature,
-                           "max_output_tokens": max_output_tokens}
+                           "max_output_tokens": max_output_tokens,
+                           "http_options": genai_types.HttpOptions(timeout=GENERATE_TIMEOUT_MS)}
                     if "2.5" in model_id:
                         cfg["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=0)
+                    elif model_id.startswith("gemini-3"):
+                        # 3.x는 사고가 기본 켜져 출력 토큰 예산을 먹는다. budget은 3.x에 안 맞아 level로 낮춘다.
+                        cfg["thinking_config"] = genai_types.ThinkingConfig(
+                            thinking_level=genai_types.ThinkingLevel.LOW)
                     res = client.models.generate_content(
                         model=model_id, contents=prompt,
                         config=genai_types.GenerateContentConfig(**cfg),
                     )
-                    return res.text or ""
+                    text = res.text or ""
+                    if text:
+                        self.last_model = getattr(res, "model_version", None) or model_id
+                        return text
+                    self.log(f"[Gemini] {model_id} 빈 응답 — 다음 모델로 전환")
+                    break
                 except Exception as e:
                     err = str(e)
                     is_quota = "429" in err or "quota" in err.lower()
                     if is_quota and attempt == 0:
                         m = re.search(r"retry in (\d+(?:\.\d+)?)", err)
-                        wait = int(float(m.group(1))) + 5 if m else 60
-                        self.log(f"[Gemini] {model_id} 한도 초과. {wait}초 대기 후 재시도")
-                        self._sleep(wait)
-                        continue
+                        sec = int(float(m.group(1))) + 5 if m else 60
+                        self.log(f"[Gemini] {model_id} 한도 초과. {sec}초 대기 후 재시도")
+                        if wait(sec):
+                            continue
+                        self.log("[Gemini] 대기 상한 초과 — 다음 모델로 전환")
+                        break
                     if is_quota:
-                        self._sleep(10)
+                        wait(10)
                         break
                     if ("503" in err or "UNAVAILABLE" in err) and attempt == 0:
-                        self._sleep(30)
-                        continue
-                    self.log(f"[Gemini] {model_id} 오류(폴백 전환): {e}")
+                        if wait(30):
+                            continue
+                        break
+                    self.log(f"[Gemini] {model_id} 오류(다음 모델로 전환): {e}")
                     break
         return ""
 
@@ -363,10 +393,23 @@ def apply_env_overrides(settings: ports.Settings, env: dict | None = None) -> po
     mode = env.get("EVIDENCE_MODE", "").strip()
     if mode in ("off", "shadow"):
         changes["evidence_mode"] = mode
+    pr = env.get("PROOFREAD_MODE", "").strip()
+    if pr in ("off", "shadow"):
+        changes["proofread_mode"] = pr
     hint = env.get("USAGE_HINT_MODE", "").strip()
     if hint in ("off", "examples"):
         changes["usage_hint_mode"] = hint
     return dataclasses.replace(settings, **changes) if changes else settings
+
+
+def models_from_env(env: dict | None = None) -> list:
+    """GEMINI_MODELS(쉼표 구분)로 생성 체인을 임시 교체한다 — 특정 모델 시험용. 비면 기본 체인.
+    `gemini-`로 시작하는 id만 받는다."""
+    env = env if env is not None else os.environ
+    ids = [m.strip() for m in env.get("GEMINI_MODELS", "").split(",") if m.strip()]
+    if ids and all(re.fullmatch(r"gemini-[A-Za-z0-9.\-]+", m) for m in ids):
+        return ids
+    return list(GEMINI_MODELS)
 
 
 def build_production_deps(base_dir: str, settings: ports.Settings | None = None) -> ports.Deps:
@@ -390,7 +433,7 @@ def build_production_deps(base_dir: str, settings: ports.Settings | None = None)
         clock=clock,
         rng=SystemRng(),
         log=log,
-        llm=GeminiLlm(secrets.gemini_api_key, log),
+        llm=GeminiLlm(secrets.gemini_api_key, log, models=models_from_env()),
         mailer=SmtpMailer(secrets.gmail_address, secrets.gmail_app_password, log),
         store=store,
         vcs=GitVcs(base_dir, log, enabled=mode.in_ci),
