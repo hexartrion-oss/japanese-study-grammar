@@ -135,6 +135,9 @@ def append_shadow_review(deps: ports.Deps, review: dict, category_key: str,
             "judge_ok": item["judge_ok"],
             "agree": False,
             "snippet": item["snippet"],
+            "sentence": item.get("sentence"),
+            "judge_note": item.get("judge_note"),
+            "rules_version": item.get("rules_version"),
             "human_label": None,
         })
     deps.store.write(ports.SHADOW_REVIEW, review)
@@ -822,10 +825,12 @@ def check_extra_structural(passage: str, patterns: list) -> dict:
     validate_passage()의 통과/실패 판정 로직은 건드리지 않고,
     그림자 비교에 쓸 원시 결과만 별도로 뽑아낸다."""
     normalized = _normalize(passage)
+    # 지문에 없는 문형은 비교 대상이 아니다 — 부재 문형에 구조 검사가 False를 내면
+    # 판정과 갈린 것으로 기록돼 노이즈가 된다(그 실패는 "문형 누락"이 이미 보고한다).
     return {
         p.id: _EXTRA_CHECKS[p.id](normalized)
         for p in patterns
-        if p.id in _EXTRA_CHECKS
+        if p.id in _EXTRA_CHECKS and _pattern_used(p, normalized)
     }
 
 
@@ -920,7 +925,8 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict, attempt_si
         raw = deps.llm.generate(prompt, temperatures[attempt])
         topic, passage = parse_gemini_output(raw)
         ok, reason, problem_ids = (validate_passage(deps, passage, patterns) if passage
-                                   else (False, "Gemini 출력 파싱 실패(--- 구분자 없음)", []))
+                                   else (False, "Gemini 빈 응답(생성 호출 실패)" if not (raw or "").strip()
+                                       else "Gemini 출력 파싱 실패(--- 구분자 없음)", []))
 
         # 그림자 비교: validate_passage()의 통과/실패와 무관하게, 지문이 있으면
         # 항상 판정과 코드 검증을 나란히 실행해 불일치를 기록한다(재시도 여부에는
@@ -933,6 +939,7 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict, attempt_si
             judgment, judge_status = judge_with_status(deps, passage, patterns)
             code_results = check_extra_structural(passage, patterns)
             comparison = compare_judgments(code_results, judgment)
+            shadow_pat = {p.id: p for p in patterns}
             for pid, c in comparison.items():
                 if not c["agree"]:
                     shadow_log.append({
@@ -940,6 +947,10 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict, attempt_si
                         "code_ok": c["code_ok"],
                         "judge_ok": c["judge_ok"],
                         "snippet": (passage or "")[:300],
+                        "sentence": EC.extract_sentence(
+                            passage, lambda sen, _p=shadow_pat[pid]: _pattern_found(_p, _normalize(sen))),
+                        "judge_note": (judgment.get(pid) or {}).get("note"),
+                        "rules_version": RULES_VERSION,
                     })
 
         if ok:
@@ -1264,6 +1275,12 @@ def send_weekly_shadow_report(deps: ports.Deps, review: dict, today: datetime.da
     for e in pending:
         lines.append(f"[{e['date']} · {e['category']} · {e['pattern']}]")
         lines.append(f"  코드 판정: {'통과' if e['code_ok'] else '실격'} / LLM 판정: {'통과' if e['judge_ok'] else '실격'}")
+        if e.get("sentence"):
+            lines.append(f"  해당 문장: {e['sentence']}")
+        if e.get("judge_note"):
+            lines.append(f"  판정 이유: {e['judge_note']}")
+        if e.get("rules_version") and e["rules_version"] != RULES_VERSION:
+            lines.append(f"  (기록 당시 규칙 {e['rules_version']} ≠ 현재 {RULES_VERSION} — 이미 고친 사례일 수 있음)")
         lines.append(f"  지문 일부: {e['snippet']}")
         lines.append("")
     admin = deps.secrets.gmail_address
