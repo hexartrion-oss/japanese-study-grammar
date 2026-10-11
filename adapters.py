@@ -399,6 +399,16 @@ def apply_env_overrides(settings: ports.Settings, env: dict | None = None) -> po
     return dataclasses.replace(settings, **changes) if changes else settings
 
 
+def models_from_env(env: dict | None = None) -> list:
+    """GEMINI_MODELS(쉼표 구분)로 생성 체인을 임시 교체한다 — 특정 모델 시험용. 비면 기본 체인.
+    `gemini-`로 시작하는 id만 받는다."""
+    env = env if env is not None else os.environ
+    ids = [m.strip() for m in env.get("GEMINI_MODELS", "").split(",") if m.strip()]
+    if ids and all(re.fullmatch(r"gemini-[A-Za-z0-9.\-]+", m) for m in ids):
+        return ids
+    return list(GEMINI_MODELS)
+
+
 def build_production_deps(base_dir: str, settings: ports.Settings | None = None) -> ports.Deps:
     """운영용 Deps 조립. main()에서만 호출한다."""
     if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
@@ -420,7 +430,7 @@ def build_production_deps(base_dir: str, settings: ports.Settings | None = None)
         clock=clock,
         rng=SystemRng(),
         log=log,
-        llm=GeminiLlm(secrets.gemini_api_key, log),
+        llm=GeminiLlm(secrets.gemini_api_key, log, models=models_from_env()),
         mailer=SmtpMailer(secrets.gmail_address, secrets.gmail_app_password, log),
         store=store,
         vcs=GitVcs(base_dir, log, enabled=mode.in_ci),

@@ -87,5 +87,15 @@ class ChainTests(unittest.TestCase):
         self.assertTrue(any("대기 상한" in m for m in logs))
 
 
+class EnvModelsTests(unittest.TestCase):
+    def test_default_when_empty_or_invalid(self):
+        self.assertEqual(adapters.models_from_env({}), adapters.GEMINI_MODELS)
+        self.assertEqual(adapters.models_from_env({"GEMINI_MODELS": "rm -rf"}), adapters.GEMINI_MODELS)
+
+    def test_override(self):
+        self.assertEqual(adapters.models_from_env({"GEMINI_MODELS": "gemini-3-flash-preview, gemini-2.5-flash"}),
+                         ["gemini-3-flash-preview", "gemini-2.5-flash"])
+
+
 if __name__ == "__main__":
     unittest.main()
