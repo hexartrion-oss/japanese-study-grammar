@@ -878,7 +878,8 @@ def _run_evidence_shadow(deps: ports.Deps, passage: str, patterns: list, flagged
 
 
 def _attempt_record(attempt: int, temperature: float, patterns: list, outcome: str, reason: str,
-                    judge_status, judgment, code_problem_ids: list, evidence: list) -> dict:
+                    judge_status, judgment, code_problem_ids: list, evidence: list,
+                    gen_model=None) -> dict:
     notes_valid = judge_status in ("ran", "parse_partial")
     return {
         "attempt": attempt,
@@ -892,6 +893,7 @@ def _attempt_record(attempt: int, temperature: float, patterns: list, outcome: s
                         if notes_valid else {}),
         "code_problem_ids": list(code_problem_ids),
         "evidence": evidence,
+        "gen_model": gen_model if isinstance(gen_model, str) else None,
     }
 
 
@@ -923,6 +925,7 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict, attempt_si
         prompt = build_prompt(deps, patterns, category["level_tag"],
                               missing=retry_feedback, hints=hints)
         raw = deps.llm.generate(prompt, temperatures[attempt])
+        gen_model = getattr(deps.llm, "last_model", None)
         topic, passage = parse_gemini_output(raw)
         ok, reason, problem_ids = (validate_passage(deps, passage, patterns) if passage
                                    else (False, "Gemini 빈 응답(생성 호출 실패)" if not (raw or "").strip()
@@ -974,7 +977,8 @@ def generate_passage(deps: ports.Deps, category: dict, history: dict, attempt_si
 
         sink.append(_attempt_record(
             attempt + 1, temperatures[attempt], patterns, "passed" if ok else "failed",
-            "" if ok else reason, judge_status, judgment, code_structural_ids, evidence_records))
+            "" if ok else reason, judge_status, judgment, code_structural_ids, evidence_records,
+            gen_model))
 
         if ok:
             deps.log(f"[생성] {attempt + 1}번째 시도에서 성공")
