@@ -908,6 +908,137 @@
           "sentence": "せめてこの温かいスープだけでも飲めれば、苦労して登ってきた甲斐があったというものだ。"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-10-13",
+      "category": "인용",
+      "result": "passed",
+      "run_id": "38441954550",
+      "commit_sha": "76ec4ff7cb1898878f6e5fd68646d3d731be9eaf",
+      "manual": false,
+      "rules_version": "2026-10-11-p2",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "ようだ",
+        "んだって",
+        "らしい",
+        "んじゃないか",
+        "に決まっている"
+      ],
+      "attempts_count": 4,
+      "judge_summary": {
+        "call_failed": 3,
+        "ran": 1
+      },
+      "final_judge_status": "call_failed",
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "そうだ(様態)",
+            "とのことだ",
+            "げだ",
+            "由",
+            "とか〜とか"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: そうだ(様態), げだ, 由",
+          "judge_status": "call_failed",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "そうだ(様態)",
+            "とのことだ",
+            "げだ",
+            "由",
+            "とか〜とか"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: げだ",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "ようだ",
+            "んだって",
+            "らしい",
+            "んじゃないか",
+            "に決まっている"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: に決まっている",
+          "judge_status": "call_failed",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        },
+        {
+          "attempt": 4,
+          "temperature": 0.2,
+          "patterns": [
+            "ようだ",
+            "んだって",
+            "らしい",
+            "んじゃないか",
+            "に決まっている"
+          ],
+          "outcome": "passed",
+          "reason": "",
+          "judge_status": "call_failed",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        }
+      ],
+      "topic": "初めての登山",
+      "passage": "先日、友人と初めての登山に挑戦した。最初は軽い気持ちで「景色でも見に行こうか」といった感じだったのだが、実際に山道を歩き始めると、想像以上に険しい道のりだった。途中、友人が「この道、本当に合ってるのかな」と不安げに呟いた時、私も少し心配になった。しかし、地図を確認すると、どうやら正しい道を進んでいるようだ。山頂に近づくにつれて、風が強くなり、気温もぐっと下がった。友人は「頂上はもっと寒いんだって。防寒具、ちゃんと持ってきた？」と私に尋ねた。私は厚手のジャケットを着ていたので大丈夫だと思ったが、念のためもう一枚羽織ることにした。頂上に着くと、目の前には息をのむような絶景が広がっていた。苦労して登った甲斐があったと心から思った。友人も感動した様子で、「こんな景色を見たら、また来たくなるに決まっているよ」と興奮気味に話していた。下山中、足元が滑りやすい場所があり、友人が危うく転びそうになった。私は「もう少しゆっくり歩いた方がいいんじゃないか」と声をかけた。彼は「そうだね、油断は禁物だ」と頷いた。今回の登山で、自然の雄大さと厳しさを改めて感じた。友人も私も、この経験を通して一回り成長できたらしい。次回の登山では、もっと準備をしっかりして、別の山に挑戦してみたい。",
+      "usages": [
+        {
+          "pattern": "ようだ",
+          "sentence": "しかし、地図を確認すると、どうやら正しい道を進んでいるようだ。"
+        },
+        {
+          "pattern": "んだって",
+          "sentence": "友人は「頂上はもっと寒いんだって。"
+        },
+        {
+          "pattern": "らしい",
+          "sentence": "友人も私も、この経験を通して一回り成長できたらしい。"
+        },
+        {
+          "pattern": "んじゃないか",
+          "sentence": "私は「もう少しゆっくり歩いた方がいいんじゃないか」と声をかけた。"
+        },
+        {
+          "pattern": "に決まっている",
+          "sentence": "友人も感動した様子で、「こんな景色を見たら、また来たくなるに決まっているよ」と興奮気味に話していた。"
+        }
+      ]
     }
   ],
   "overturned": [
