@@ -1215,6 +1215,204 @@
           "sentence": "このプロジェクトを機に、私は長年の夢だったカフェ開業への思いを再燃させたのである。"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-10-16",
+      "category": "N1문어체",
+      "result": "passed",
+      "run_id": "38920912313",
+      "commit_sha": "a9159d6a96c058f6daae67e6d0ae8b6cc924e8c8",
+      "manual": false,
+      "rules_version": "2026-10-11-p2",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "なくしては",
+        "からある/からする",
+        "べく",
+        "ないまでも",
+        "にとどまらず"
+      ],
+      "attempts_count": 3,
+      "judge_summary": {
+        "ran": 3
+      },
+      "final_judge_status": "ran",
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "にほかならない",
+            "きらいがある",
+            "んがために",
+            "にたえない",
+            "を禁じ得ない"
+          ],
+          "outcome": "failed",
+          "reason": "구조 조건 미충족: を禁じ得ない",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [
+            "を禁じ得ない"
+          ],
+          "evidence": [
+            {
+              "pattern": "を禁じ得ない",
+              "source": "code",
+              "sentence": "口論がエスカレートするにつれ、私は胸騒ぎを禁じ得なかった。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 19.3,
+              "n_sources": 5,
+              "n_qualified": 1,
+              "hosts": [
+                "yomiuri.co.jp",
+                "livedoor.com",
+                "livedoor.com",
+                "komei.or.jp",
+                "note.com"
+              ],
+              "classes": [
+                "news",
+                "other",
+                "other",
+                "other",
+                "other"
+              ],
+              "verdict": "natural",
+              "basis": "新聞記事やコラムで「懸念を禁じ得ない」「憤りを禁じ得ない」など、類似の感情表現が用いられているため。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "にほかならない",
+            "きらいがある",
+            "んがために",
+            "にたえない",
+            "を禁じ得ない"
+          ],
+          "outcome": "failed",
+          "reason": "구조 조건 미충족: を禁じ得ない",
+          "judge_status": "ran",
+          "judge_failed": [
+            "にたえない"
+          ],
+          "judge_notes": {
+            "にたえない": "「想像に堪えない」の「堪えない」は漢字ではなく仮名（たえない）表記が適切。"
+          },
+          "code_problem_ids": [
+            "を禁じ得ない"
+          ],
+          "evidence": [
+            {
+              "pattern": "を禁じ得ない",
+              "source": "code",
+              "sentence": "その知らせを聞いた時、私は胸が締め付けられる思いを禁じ得なかった。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 14.7,
+              "n_sources": 7,
+              "n_qualified": 0,
+              "hosts": [
+                "nihongokyoshi-net.com",
+                "hedgehog-japanese.com",
+                "mainichi-nonbiri.com",
+                "blognihongo.com",
+                "nihon5-bunka.net",
+                "aiueo.cc",
+                "j-nihongo.com"
+              ],
+              "classes": [
+                "other",
+                "other",
+                "other",
+                "other",
+                "other",
+                "other",
+                "other"
+              ],
+              "verdict": "natural",
+              "basis": "「を禁じ得ない」は感情を表す名詞と接続し、本件の「思い」もこれに該当するため。"
+            },
+            {
+              "pattern": "にたえない",
+              "source": "judge",
+              "sentence": "休業中、私は彼の代わりを務めるべく、見よう見まねで菓子作りに挑戦したが、その難しさに想像に堪えないほど苦しんだ。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 15.1,
+              "n_sources": 3,
+              "n_qualified": 0,
+              "hosts": [
+                "ntu.edu.tw",
+                "yahoo.co.jp",
+                "oncolo.jp"
+              ],
+              "classes": [
+                "other",
+                "other",
+                "other"
+              ],
+              "verdict": "natural",
+              "basis": "「に堪えないほど」は、論文や記事において、想像できないほどの甚大な状況や耐え難い苦痛の程度を表す用法が見られるため。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "なくしては",
+            "からある/からする",
+            "べく",
+            "ないまでも",
+            "にとどまらず"
+          ],
+          "outcome": "passed",
+          "reason": "",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        }
+      ],
+      "topic": "古民家再生の夢",
+      "passage": "大学を卒業してすぐ、私は都会の喧騒を離れ、地方の過疎地域にある築100年からある古民家を購入した。都会で生まれ育った私にとって、その古民家はまさに未知の世界であり、再生への道のりは平坦ではないだろうと覚悟していた。しかし、実際に住み始めてみると、想像をはるかに超える困難が次々と押し寄せた。特に冬の寒さは厳しく、隙間風が吹き荒れる中で温かい食事をとることすらままならない日もあった。それでも、この家を自分の手で蘇らせたいという思いは揺るがなかった。まず、地域の住民に協力を仰ぐべく、私は積極的に交流の場に顔を出すようになった。最初はよそ者を見るような視線を感じることもあったが、私が真剣に古民家再生に取り組む姿を見て、少しずつ心を開いてくれる人が増えていった。ある日、近所のベテラン大工さんが「手伝ってやるよ」と声をかけてくれたのだ。その言葉は、何よりも心強いものだった。彼のアドバイスを受けながら、私は壁の補修から屋根の葺き替えまで、あらゆる作業に没頭した。プロの技術には到底及ばないまでも、できることは自分でやろうと決めていた。作業は肉体的にも精神的にも過酷だったが、少しずつ家が息を吹き返していくのを見るたびに、大きな喜びを感じた。そして一年後、古民家はかつての面影を残しつつも、現代の生活に合わせた快適な空間へと生まれ変わった。この再生プロジェクトは、私の人生にとどまらず、地域全体に新たな活気をもたらすきっかけとなった。今では、この古民家を拠点に、地域の魅力を発信するイベントを企画するなど、様々な活動を展開している。この古民家なくしては、今の私があることはないだろう。",
+      "usages": [
+        {
+          "pattern": "なくしては",
+          "sentence": "この古民家なくしては、今の私があることはないだろう。"
+        },
+        {
+          "pattern": "からある/からする",
+          "sentence": "大学を卒業してすぐ、私は都会の喧騒を離れ、地方の過疎地域にある築100年からある古民家を購入した。"
+        },
+        {
+          "pattern": "べく",
+          "sentence": "まず、地域の住民に協力を仰ぐべく、私は積極的に交流の場に顔を出すようになった。"
+        },
+        {
+          "pattern": "ないまでも",
+          "sentence": "プロの技術には到底及ばないまでも、できることは自分でやろうと決めていた。"
+        },
+        {
+          "pattern": "にとどまらず",
+          "sentence": "この再生プロジェクトは、私の人生にとどまらず、地域全体に新たな活気をもたらすきっかけとなった。"
+        }
+      ]
     }
   ],
   "overturned": [
@@ -1232,6 +1430,25 @@
       "n_qualified": 1,
       "run_id": "37818213153",
       "id": "2026-10-08-ばかりに-code_ng→web_ok",
+      "status": "candidate"
+    },
+    {
+      "date": "2026-10-16",
+      "pattern": "を禁じ得ない",
+      "sentence": "口論がエスカレートするにつれ、私は胸騒ぎを禁じ得なかった。",
+      "direction": "code_ng→web_ok",
+      "judge_note": null,
+      "web_basis": "新聞記事やコラムで「懸念を禁じ得ない」「憤りを禁じ得ない」など、類似の感情表現が用いられているため。",
+      "hosts": [
+        "yomiuri.co.jp",
+        "livedoor.com",
+        "livedoor.com",
+        "komei.or.jp",
+        "note.com"
+      ],
+      "n_qualified": 1,
+      "run_id": "38920912313",
+      "id": "2026-10-16-を禁じ得ない-code_ng→web_ok",
       "status": "candidate"
     }
   ]
