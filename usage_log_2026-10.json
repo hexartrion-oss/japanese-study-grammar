@@ -1413,6 +1413,158 @@
           "sentence": "この再生プロジェクトは、私の人生にとどまらず、地域全体に新たな活気をもたらすきっかけとなった。"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-10-19",
+      "category": "부사",
+      "result": "failed",
+      "run_id": "39292449800",
+      "commit_sha": "eb382422bd0202c85012cc7999e25eee1c59bc8b",
+      "manual": false,
+      "rules_version": "2026-10-11-p2",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "まさか〜とは思わなかった",
+        "いっそ〜ばよかった",
+        "むしろ〜べきだ",
+        "なんとか〜ようにする",
+        "なにも〜なくても"
+      ],
+      "attempts_count": 4,
+      "judge_summary": {
+        "ran": 3,
+        "call_failed": 1
+      },
+      "final_judge_status": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "あながち〜とは言えない",
+            "たとえ〜としても",
+            "どうにか〜ことができた",
+            "どうせ〜なら",
+            "かえって〜てしまう"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: たとえ〜としても",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "あながち〜とは言えない",
+            "たとえ〜としても",
+            "どうにか〜ことができた",
+            "どうせ〜なら",
+            "かえって〜てしまう"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: あながち〜とは言えない, どうにか〜ことができた, かえって〜てしまう",
+          "judge_status": "call_failed",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "まさか〜とは思わなかった",
+            "いっそ〜ばよかった",
+            "むしろ〜べきだ",
+            "なんとか〜ようにする",
+            "なにも〜なくても"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: むしろ〜べきだ, なにも〜なくても",
+          "judge_status": "ran",
+          "judge_failed": [
+            "むしろ〜べきだ",
+            "なにも〜なくても"
+          ],
+          "judge_notes": {
+            "むしろ〜べきだ": "「むしろ」に対応する「べきだ」が文中で使われておらず、呼応が不適切であるため。",
+            "なにも〜なくても": "「なにも」に対応する「〜なくても」の文型が正しく使われていないため。"
+          },
+          "code_problem_ids": [],
+          "evidence": [
+            {
+              "pattern": "むしろ〜べきだ",
+              "source": "judge",
+              "sentence": "初めての海外出張は、期待と不安が入り混じるものだった。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 10.2,
+              "n_sources": 4,
+              "n_qualified": 0,
+              "hosts": [
+                "nihongobu.net",
+                "mainichi-nonbiri.com",
+                "jpf.go.jp",
+                "mainichi-nonbiri.com"
+              ],
+              "classes": [
+                "other",
+                "other",
+                "other",
+                "other"
+              ],
+              "verdict": "unnatural",
+              "basis": "「むしろ〜べきだ」は勧告や当然の行為を表すが、提示文は過去の出来事を記述しており、文型に合致しないため。"
+            },
+            {
+              "pattern": "なにも〜なくても",
+              "source": "judge",
+              "sentence": "初めての海外出張は、期待と不安が入り混じるものだった。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 4.9,
+              "n_sources": 0,
+              "n_qualified": 0,
+              "hosts": [],
+              "classes": [],
+              "verdict": "unnatural",
+              "basis": "文中に「なにも〜なくても」の文型が含まれていないため。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        },
+        {
+          "attempt": 4,
+          "temperature": 0.2,
+          "patterns": [
+            "まさか〜とは思わなかった",
+            "いっそ〜ばよかった",
+            "むしろ〜べきだ",
+            "なんとか〜ようにする",
+            "なにも〜なくても"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: なんとか〜ようにする",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        }
+      ]
     }
   ],
   "overturned": [
