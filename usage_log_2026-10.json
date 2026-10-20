@@ -1565,6 +1565,155 @@
           "proofread": null
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-10-20",
+      "category": "인용",
+      "result": "failed",
+      "run_id": "39448580991",
+      "commit_sha": "7e22e729e30a884a46c19a9682a36257d627a1ab",
+      "manual": false,
+      "rules_version": "2026-10-20-p3",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "とか(伝聞)",
+        "に決まっている",
+        "げだ",
+        "とか〜とか",
+        "という"
+      ],
+      "attempts_count": 4,
+      "judge_summary": {
+        "call_failed": 1,
+        "ran": 3
+      },
+      "final_judge_status": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "由",
+            "みたいだ",
+            "とのことだ",
+            "そうだ(様態)",
+            "っぽい"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: 由",
+          "judge_status": "call_failed",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "由",
+            "みたいだ",
+            "とのことだ",
+            "そうだ(様態)",
+            "っぽい"
+          ],
+          "outcome": "failed",
+          "reason": "문장 수 24개 — 범위(10~20) 벗어남",
+          "judge_status": "ran",
+          "judge_failed": [
+            "由"
+          ],
+          "judge_notes": {
+            "由": "名詞に直接「由」を接続する用法はなく、文法的に誤り。"
+          },
+          "code_problem_ids": [],
+          "evidence": [
+            {
+              "pattern": "由",
+              "source": "judge",
+              "sentence": "そんなある日、友人が「一人旅は自由で最高だ」と熱弁するのを聞き、私も一歩踏み出す決意を固めた。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 14.2,
+              "n_sources": 0,
+              "n_qualified": 0,
+              "hosts": [],
+              "classes": [],
+              "verdict": "unknown",
+              "basis": "文中に「由」の文型が見当たらないため、判定できません。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "とか(伝聞)",
+            "に決まっている",
+            "げだ",
+            "とか〜とか",
+            "という"
+          ],
+          "outcome": "failed",
+          "reason": "자연스러움 판정 실패: げだ",
+          "judge_status": "ran",
+          "judge_failed": [
+            "げだ"
+          ],
+          "judge_notes": {
+            "げだ": "「元気がないげ」は文法的に誤り。正しくは「元気なさげ」など語幹に接続する。"
+          },
+          "code_problem_ids": [],
+          "evidence": [
+            {
+              "pattern": "げだ",
+              "source": "judge",
+              "sentence": "しかし、その表情はどこか寂しげで、心なしか元気がないげだった。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 13.5,
+              "n_sources": 1,
+              "n_qualified": 0,
+              "hosts": [
+                "gges.xyz"
+              ],
+              "classes": [
+                "other"
+              ],
+              "verdict": "unnatural",
+              "basis": "学術論文において「ないげ」の標準的な用法が確認できないため。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        },
+        {
+          "attempt": 4,
+          "temperature": 0.2,
+          "patterns": [
+            "とか(伝聞)",
+            "に決まっている",
+            "げだ",
+            "とか〜とか",
+            "という"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: げだ",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        }
+      ]
     }
   ],
   "overturned": [
