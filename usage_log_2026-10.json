@@ -1804,6 +1804,163 @@
           "sentence": "たとえ失敗に終わったにしても、この経験はきっと私を成長させてくれるだろう。"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-10-22",
+      "category": "비즈니스",
+      "result": "passed",
+      "run_id": "39807495646",
+      "commit_sha": "c7df98f0c59decc8bc596244c7d82b2a46851973",
+      "manual": false,
+      "rules_version": "2026-10-20-p3",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "ないことには",
+        "に沿って",
+        "上で",
+        "に関しては",
+        "に伴って"
+      ],
+      "attempts_count": 3,
+      "judge_summary": {
+        "ran": 2,
+        "call_failed": 1
+      },
+      "final_judge_status": "call_failed",
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "ばかりに",
+            "に基づいて",
+            "を機に",
+            "次第だ",
+            "ことなく"
+          ],
+          "outcome": "failed",
+          "reason": "구조 조건 미충족: ばかりに",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [
+            "ばかりに"
+          ],
+          "evidence": [
+            {
+              "pattern": "ばかりに",
+              "source": "code",
+              "sentence": "あの時は、不用意な発言をしたばかりに、現地の住民との間に一時的な誤解を生んでしまい、チーム全体の活動に支障をきたしてしまった。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 14.4,
+              "n_sources": 2,
+              "n_qualified": 2,
+              "hosts": [
+                "nii.ac.jp",
+                "nijl.ac.jp"
+              ],
+              "classes": [
+                "academic",
+                "academic"
+              ],
+              "verdict": "natural",
+              "basis": "「ばかりに」は、話し手の後悔や残念な気持ちを伴う、悪い結果の原因を表す用法であり、提示された文はその意味に合致する。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "ばかりに",
+            "に基づいて",
+            "を機に",
+            "次第だ",
+            "ことなく"
+          ],
+          "outcome": "failed",
+          "reason": "구조 조건 미충족: ばかりに",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [
+            "ばかりに"
+          ],
+          "evidence": [
+            {
+              "pattern": "ばかりに",
+              "source": "code",
+              "sentence": "しかし、出発前にスマートフォンを紛失したばかりに、旅の初日から望ましくない事態に直面することになった。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 6.8,
+              "n_sources": 2,
+              "n_qualified": 2,
+              "hosts": [
+                "nii.ac.jp",
+                "ninjal.ac.jp"
+              ],
+              "classes": [
+                "academic",
+                "academic"
+              ],
+              "verdict": "natural",
+              "basis": "「ばかりに」は、ある原因が好ましくない結果につながることを表す用法がある。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "ないことには",
+            "に沿って",
+            "上で",
+            "に関しては",
+            "に伴って"
+          ],
+          "outcome": "passed",
+          "reason": "",
+          "judge_status": "call_failed",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        }
+      ],
+      "topic": "新しい挑戦の始まり",
+      "passage": "春の訪れとともに、私は新しいプロジェクトのリーダーに任命された。このプロジェクトは、会社の未来を左右する重要なものだと、上層部からは繰り返し説明されていた。そのため、私はまず、過去の成功事例や失敗談に関する資料を徹底的に読み込んだ。その上で、チームメンバー全員が納得できるような、明確な目標設定と行動計画を立てることにした。計画を立てるにあたっては、会社の長期的なビジョンに沿って、持続可能な発展を目指すという大前提を常に意識した。しかし、新しい試みには常に予期せぬ困難が伴うものだ。特に、技術的な側面に関しては、まだ解決すべき課題が山積しているのが現状だった。ある日、チームミーティングで、私はメンバーたちに「この困難を乗り越えないことには、プロジェクトの成功はおろか、会社の未来もないだろう」と、強い口調で語りかけた。皆の顔には不安の色が浮かんでいたが、私の言葉に真剣に耳を傾けてくれた。その言葉に、皆の表情が引き締まったのを私は見逃さなかった。その後、彼らは私の期待に応えるべく、それぞれの専門分野で精力的に動き始めた。困難な課題に直面するたびに、彼らは互いに協力し、知恵を出し合った。そして、彼らの努力に伴って、少しずつではあるが、確実にプロジェクトは前進していった。私は、このチームならどんな困難も乗り越えられると確信した。",
+      "usages": [
+        {
+          "pattern": "ないことには",
+          "sentence": "ある日、チームミーティングで、私はメンバーたちに「この困難を乗り越えないことには、プロジェクトの成功はおろか、会社の未来もないだろう」と、強い口調で語りかけた。"
+        },
+        {
+          "pattern": "に沿って",
+          "sentence": "計画を立てるにあたっては、会社の長期的なビジョンに沿って、持続可能な発展を目指すという大前提を常に意識した。"
+        },
+        {
+          "pattern": "上で",
+          "sentence": "その上で、チームメンバー全員が納得できるような、明確な目標設定と行動計画を立てることにした。"
+        },
+        {
+          "pattern": "に関しては",
+          "sentence": "特に、技術的な側面に関しては、まだ解決すべき課題が山積しているのが現状だった。"
+        },
+        {
+          "pattern": "に伴って",
+          "sentence": "そして、彼らの努力に伴って、少しずつではあるが、確実にプロジェクトは前進していった。"
+        }
+      ]
     }
   ],
   "overturned": [
@@ -1840,6 +1997,22 @@
       "n_qualified": 1,
       "run_id": "38920912313",
       "id": "2026-10-16-を禁じ得ない-code_ng→web_ok",
+      "status": "candidate"
+    },
+    {
+      "date": "2026-10-22",
+      "pattern": "ばかりに",
+      "sentence": "しかし、出発前にスマートフォンを紛失したばかりに、旅の初日から望ましくない事態に直面することになった。",
+      "direction": "code_ng→web_ok",
+      "judge_note": null,
+      "web_basis": "「ばかりに」は、ある原因が好ましくない結果につながることを表す用法がある。",
+      "hosts": [
+        "nii.ac.jp",
+        "ninjal.ac.jp"
+      ],
+      "n_qualified": 2,
+      "run_id": "39807495646",
+      "id": "2026-10-22-ばかりに-code_ng→web_ok",
       "status": "candidate"
     }
   ]
