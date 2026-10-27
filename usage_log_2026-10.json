@@ -2031,6 +2031,116 @@
           "sentence": "今では、あの時の選択を「あながち間違いだった」とは言えない。"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-10-27",
+      "category": "인용",
+      "result": "passed",
+      "run_id": "40537571360",
+      "commit_sha": "8f60bd98d4a27ff32fd5dd2a65ad64fccc7b6588",
+      "manual": false,
+      "rules_version": "2026-10-20-p3",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "んじゃないか",
+        "に決まっている",
+        "そうだ(伝聞)",
+        "とか〜とか",
+        "みたいだ"
+      ],
+      "attempts_count": 3,
+      "judge_summary": {
+        "ran": 3
+      },
+      "final_judge_status": "ran",
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "そうだ(様態)",
+            "とのことだ",
+            "げだ",
+            "っぽい",
+            "由"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: とのことだ, っぽい, 由",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "そうだ(様態)",
+            "とのことだ",
+            "げだ",
+            "っぽい",
+            "由"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: げだ, っぽい",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "んじゃないか",
+            "に決まっている",
+            "そうだ(伝聞)",
+            "とか〜とか",
+            "みたいだ"
+          ],
+          "outcome": "passed",
+          "reason": "",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        }
+      ],
+      "topic": "初めての一人旅",
+      "passage": "先日、初めての一人旅に出た。計画段階から不安でいっぱいだったが、友人からは「きっといい経験になるに決まっている」と励まされた。出発前日、天気予報を見ると、旅先の山間部では雪が降るそうだ。まさかこんな時期に雪とは、と少し驚いたが、それもまた旅の醍醐味だろうと考えた。旅の目的は、昔から憧れていた秘境の温泉地を訪れることだった。現地に着くと、想像以上に静かで、聞こえるのは風の音とか鳥のさえずりとか、自然の音ばかりだ。都会の喧騒から離れ、心が洗われるような感覚だった。温泉旅館にチェックインすると、部屋には温かいお茶が用意されており、心遣いが嬉しかった。夕食は地元の食材を使った料理で、どれもこれも美味しかった。特に、初めて食べた山菜の天ぷらは絶品だった。翌朝、窓の外を見ると、うっすらと雪化粧をした山々が見えた。本当に雪が降ったんだなと、改めて自然の雄大さに感動した。旅館の女将さんによると、この時期に雪が降るのは珍しいみたいだ。露天風呂に入ると、冷たい空気と温かい湯のコントラストが心地よく、日頃の疲れが癒されていくのを感じた。こんな素晴らしい場所、もっと早く来るべきだったんじゃないかと、少し後悔もした。この旅を通して、一人で行動することの楽しさや、新しい発見の喜びを知ることができた。",
+      "usages": [
+        {
+          "pattern": "んじゃないか",
+          "sentence": "こんな素晴らしい場所、もっと早く来るべきだったんじゃないかと、少し後悔もした。"
+        },
+        {
+          "pattern": "に決まっている",
+          "sentence": "計画段階から不安でいっぱいだったが、友人からは「きっといい経験になるに決まっている」と励まされた。"
+        },
+        {
+          "pattern": "そうだ(伝聞)",
+          "sentence": "出発前日、天気予報を見ると、旅先の山間部では雪が降るそうだ。"
+        },
+        {
+          "pattern": "とか〜とか",
+          "sentence": "現地に着くと、想像以上に静かで、聞こえるのは風の音とか鳥のさえずりとか、自然の音ばかりだ。"
+        },
+        {
+          "pattern": "みたいだ",
+          "sentence": "旅館の女将さんによると、この時期に雪が降るのは珍しいみたいだ。"
+        }
+      ]
     }
   ],
   "overturned": [
