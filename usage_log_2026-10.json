@@ -2141,6 +2141,153 @@
           "sentence": "旅館の女将さんによると、この時期に雪が降るのは珍しいみたいだ。"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-10-28",
+      "category": "강조·역접",
+      "result": "failed",
+      "run_id": "40730206872",
+      "commit_sha": "3eb61eb005cd4f185f33594d797c4d90bd1801af",
+      "manual": false,
+      "rules_version": "2026-10-20-p3",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "ながらも",
+        "といっても",
+        "さえ",
+        "にしても/にしろ/にせよ",
+        "くせに"
+      ],
+      "attempts_count": 4,
+      "judge_summary": {
+        "ran": 3,
+        "call_failed": 1
+      },
+      "final_judge_status": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "あげく",
+            "なんて",
+            "とはいえ",
+            "だけに",
+            "にもかかわらず"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: とはいえ, だけに",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "あげく",
+            "なんて",
+            "とはいえ",
+            "だけに",
+            "にもかかわらず"
+          ],
+          "outcome": "failed",
+          "reason": "자연스러움 판정 실패: あげく",
+          "judge_status": "ran",
+          "judge_failed": [
+            "あげく"
+          ],
+          "judge_notes": {
+            "あげく": "後ろにポジティブな結果（成功・繁栄）が来ているため誤り。"
+          },
+          "code_problem_ids": [],
+          "evidence": [
+            {
+              "pattern": "あげく",
+              "source": "judge",
+              "sentence": "そうした努力を重ねたあげく、今ではすっかり地域に根差したカフェとなり、毎日多くのお客さんで賑わっている。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 13.0,
+              "n_sources": 0,
+              "n_qualified": 0,
+              "hosts": [],
+              "classes": [],
+              "verdict": "unnatural",
+              "basis": "「あげく」は通常、長い過程の末の悪い結果を表すため。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "ながらも",
+            "といっても",
+            "さえ",
+            "にしても/にしろ/にせよ",
+            "くせに"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: さえ",
+          "judge_status": "call_failed",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        },
+        {
+          "attempt": 4,
+          "temperature": 0.2,
+          "patterns": [
+            "ながらも",
+            "といっても",
+            "さえ",
+            "にしても/にしろ/にせよ",
+            "くせに"
+          ],
+          "outcome": "failed",
+          "reason": "구조 조건 미충족: くせに",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [
+            "くせに"
+          ],
+          "evidence": [
+            {
+              "pattern": "くせに",
+              "source": "code",
+              "sentence": "翌朝、完璧な資料を提出した彼に、同僚の一人が「昨日早く帰ったくせに、どうしてそんなに完璧な資料が作れるんだ」と皮肉交じりに尋ねたが、彼はただ微笑むだけだった。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 17.2,
+              "n_sources": 1,
+              "n_qualified": 0,
+              "hosts": [
+                "livedoor.com"
+              ],
+              "classes": [
+                "other"
+              ],
+              "verdict": "natural",
+              "basis": "期待に反する状況への批判や皮肉を表す用法として自然であるため。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        }
+      ]
     }
   ],
   "overturned": [
