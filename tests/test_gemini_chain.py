@@ -45,7 +45,7 @@ def run(script, **kw):
 class ChainTests(unittest.TestCase):
     def test_order(self):
         self.assertEqual(adapters.GEMINI_MODELS, [
-            "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview",
+            "gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-3-flash-preview",
             "gemini-3.5-flash", "gemini-3.6-flash"])
 
     def test_first_model_used_when_ok(self):
@@ -54,20 +54,20 @@ class ChainTests(unittest.TestCase):
                          ("본문", ["gemini-2.5-flash"], "gemini-2.5-flash-001"))
 
     def test_empty_response_moves_to_next_model(self):
-        out, llm, calls, _, logs = run({"gemini-2.5-flash": [""], "gemini-2.5-flash-lite": ["본문"]})
+        out, llm, calls, _, logs = run({"gemini-2.5-flash": [""], "gemini-3.5-flash-lite": ["본문"]})
         self.assertEqual(out, "본문")
-        self.assertEqual([c[0] for c in calls], ["gemini-2.5-flash", "gemini-2.5-flash-lite"])
+        self.assertEqual([c[0] for c in calls], ["gemini-2.5-flash", "gemini-3.5-flash-lite"])
         self.assertTrue(any("빈 응답" in m for m in logs))
 
     def test_other_error_moves_on_and_404_does_not_stop_chain(self):
         script = {"gemini-2.5-flash": [Exception("500 boom")],
-                  "gemini-2.5-flash-lite": [Exception("404 not found")],
+                  "gemini-3.5-flash-lite": [Exception("404 not found")],
                   "gemini-3-flash-preview": ["본문"]}
         out, llm, calls, _, _ = run(script)
         self.assertEqual((out, llm.last_model), ("본문", "gemini-3-flash-preview-001"))
 
     def test_thinking_config_per_family(self):
-        _, _, calls, _, _ = run({"gemini-2.5-flash": [""], "gemini-2.5-flash-lite": [""],
+        _, _, calls, _, _ = run({"gemini-2.5-flash": [""], "gemini-3.5-flash-lite": [""],
                                  "gemini-3-flash-preview": ["x"]})
         by = {m: cfg.get("thinking_config") for m, cfg in calls}
         self.assertEqual(by["gemini-2.5-flash"], ("think", {"thinking_budget": 0}))

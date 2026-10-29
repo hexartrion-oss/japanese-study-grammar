@@ -43,7 +43,7 @@ KST = ZoneInfo("Asia/Seoul")
 # 생성 모델 폴백 순서. 앞에서부터 시도하고, 실패(API 오류·빈 응답)하면 다음으로 넘어간다.
 # 검증 실패(문형 누락 등)로는 모델이 바뀌지 않는다. 3.5는 2026-10-08부로 deprecated이고
 # 3.6으로 자동 라우팅되므로 3.5와 3.6은 같은 백엔드일 수 있다 — 3.5 종료가 확인되면 3.5를 뺀다.
-GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview",
+GEMINI_MODELS = ["gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-3-flash-preview",
                  "gemini-3.5-flash", "gemini-3.6-flash"]
 GENERATE_TIMEOUT_MS = 90_000        # 호출당 타임아웃
 GENERATE_WAIT_BUDGET_S = 180        # generate() 한 번에서 쓰는 429/503 대기 합계 상한

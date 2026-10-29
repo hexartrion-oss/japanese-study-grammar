@@ -208,7 +208,7 @@ GitHub Actions 워크플로는 `0 11 * * 1-5`(UTC 11:00 = KST 20:00) cron으로 
 
 ## 생성 모델 폴백 순서
 
-`adapters.GEMINI_MODELS`: `gemini-2.5-flash` → `2.5-flash-lite` → `3-flash-preview` → `3.5-flash` →
+`adapters.GEMINI_MODELS`: `gemini-2.5-flash` → `3.5-flash-lite` → `3-flash-preview` → `3.5-flash` →
 `3.6-flash`. API 오류·빈 응답일 때만 다음 모델로 넘어가며(검증 실패로는 안 바뀜), 한 번의 생성 호출에서
 429/503 대기는 합계 180초로 제한된다. 응답한 모델은 `usage_log`의 시도 기록 `gen_model`에 남는다.
 3.5는 3.6으로 자동 라우팅되므로 같은 백엔드일 수 있다 — 종료가 확인되면 3.5를 뺀다.
@@ -219,7 +219,7 @@ GitHub Actions 워크플로는 `0 11 * * 1-5`(UTC 11:00 = KST 20:00) cron으로 
 (C) 생성 프롬프트 규칙 10의 주의문, (B) `_CONFUSIONS` 결정적 규칙(확실히 틀린 조합만, 걸리면 "어휘 혼동"으로
 재시도), (A) `PROOFREAD_MODE=shadow` 교정 패스(`proofread_check.py`) — 별도 호출로 오류 후보를 받아
 `usage_log` 시도 기록의 `proofread`에 **기록만** 하고 합격 판정에는 쓰지 않는다(기본 shadow — 끄려면 Variables `PROOFREAD_MODE=off`, 실행당 2회,
-모델 `gemini-2.5-flash-lite`). 몇 주 쌓인 뒤 사람이 진짜/오탐을 라벨링해 합격 조건 편입 여부를 정한다.
+모델 `gemini-3.5-flash-lite`). 몇 주 쌓인 뒤 사람이 진짜/오탐을 라벨링해 합격 조건 편입 여부를 정한다.
 
 ## 자연스러움 판정 (LLM 교차 검증)
 
