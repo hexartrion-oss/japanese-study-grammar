@@ -2288,6 +2288,154 @@
           "proofread": null
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-10-29",
+      "category": "부사",
+      "result": "failed",
+      "run_id": "40821914363",
+      "commit_sha": "f57b16990d32cf5aa3a05d3b74651b5e989fbef1",
+      "manual": true,
+      "rules_version": "2026-10-20-p3",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "むしろ〜べきだ",
+        "なにも〜なくても",
+        "なんとか〜ようにする",
+        "せめて〜だけでも",
+        "せっかく〜のに"
+      ],
+      "attempts_count": 4,
+      "judge_summary": {
+        "ran": 4
+      },
+      "final_judge_status": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "まさか〜とは思わなかった",
+            "どうせ〜なら",
+            "どうも〜ようだ",
+            "まんざら〜でもない",
+            "よほど〜のか"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: どうせ〜なら, まんざら〜でもない",
+          "judge_status": "ran",
+          "judge_failed": [
+            "どうせ〜なら",
+            "よほど〜のか"
+          ],
+          "judge_notes": {
+            "どうせ〜なら": "「なら」が抜けて「どうせ〜だろう」となっており、指定の文型が正しく使われていない。",
+            "よほど〜のか": "「のか」ではなく「のだろう」となっており、指定の文型が正しく使われていない。"
+          },
+          "code_problem_ids": [],
+          "evidence": [
+            {
+              "pattern": "どうせ〜なら",
+              "source": "judge",
+              "sentence": "新しくチームに加わった彼は、最初からどこか浮いた存在だった。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 16.5,
+              "n_sources": 0,
+              "n_qualified": 0,
+              "hosts": [],
+              "classes": [],
+              "verdict": "unnatural",
+              "basis": "文中に「どうせ〜なら」の文型が含まれていないため。"
+            },
+            {
+              "pattern": "よほど〜のか",
+              "source": "judge",
+              "sentence": "新しくチームに加わった彼は、最初からどこか浮いた存在だった。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 9.5,
+              "n_sources": 0,
+              "n_qualified": 0,
+              "hosts": [],
+              "classes": [],
+              "verdict": "unknown",
+              "basis": "文中に「よほど〜のか」の文型が含まれていないため、用法として判定できない。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "まさか〜とは思わなかった",
+            "どうせ〜なら",
+            "どうも〜ようだ",
+            "まんざら〜でもない",
+            "よほど〜のか"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: よほど〜のか",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": [
+            {
+              "wrong": "まんざら悪い気でもない",
+              "right": "まんざらでもない（または「悪い気はしない」）",
+              "kind": "語彙",
+              "reason": "慣用句の誤用です。"
+            }
+          ]
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "むしろ〜べきだ",
+            "なにも〜なくても",
+            "なんとか〜ようにする",
+            "せめて〜だけでも",
+            "せっかく〜のに"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: なんとか〜ようにする, せっかく〜のに",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        },
+        {
+          "attempt": 4,
+          "temperature": 0.2,
+          "patterns": [
+            "むしろ〜べきだ",
+            "なにも〜なくても",
+            "なんとか〜ようにする",
+            "せめて〜だけでも",
+            "せっかく〜のに"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: せっかく〜のに",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        }
+      ]
     }
   ],
   "overturned": [
