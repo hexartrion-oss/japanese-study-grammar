@@ -2378,6 +2378,185 @@
           "sentence": "その国での生活は一年間にわたって続いた。"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-10-30",
+      "category": "N1문어체",
+      "result": "passed",
+      "run_id": "41093694688",
+      "commit_sha": "a4283fd8035d86ed398539166fd432a47440fdc6",
+      "manual": false,
+      "rules_version": "2026-10-20-p3",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "いかんによって",
+        "にたえない",
+        "までもなく",
+        "にほかならない",
+        "なりに"
+      ],
+      "attempts_count": 3,
+      "judge_summary": {
+        "ran": 2,
+        "call_failed": 1
+      },
+      "final_judge_status": "call_failed",
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "んばかりに",
+            "てやまない",
+            "たる(者)",
+            "ゆえに",
+            "きらいがある"
+          ],
+          "outcome": "failed",
+          "reason": "자연스러움 판정 실패: んばかりに, きらいがある",
+          "judge_status": "ran",
+          "judge_failed": [
+            "んばかりに",
+            "きらいがある"
+          ],
+          "judge_notes": {
+            "んばかりに": "動詞の未然形に接続するため、「溢れ出す」という辞書形に接続するのは文法的に誤り。",
+            "きらいがある": "「思っていた」と「ている/ていた」の形に重ねて使っているため文法的に誤り。"
+          },
+          "code_problem_ids": [],
+          "evidence": [
+            {
+              "pattern": "んばかりに",
+              "source": "judge",
+              "sentence": "読み進めるうちに、彼の当時抱いていたであろう苦悩が、紙面から溢れ出すんばかりに伝わってきた。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 23.0,
+              "n_sources": 0,
+              "n_qualified": 0,
+              "hosts": [],
+              "classes": [],
+              "verdict": "natural",
+              "basis": "新聞記事において同様の表現が使用されているため。"
+            },
+            {
+              "pattern": "きらいがある",
+              "source": "judge",
+              "sentence": "私はこれまで、祖父をただの厳格な人物だとばかり思っていたきらいがある。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 20.0,
+              "n_sources": 3,
+              "n_qualified": 0,
+              "hosts": [
+                "blognihongo.com",
+                "japanese-language-education.com",
+                "j-nihongo.com"
+              ],
+              "classes": [
+                "other",
+                "other",
+                "other"
+              ],
+              "verdict": "natural",
+              "basis": "「これまで」と「思っていた」が過去の継続的な傾向を表し、好ましくない傾向という「きらいがある」の用法に合致するため。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "んばかりに",
+            "てやまない",
+            "たる(者)",
+            "ゆえに",
+            "きらいがある"
+          ],
+          "outcome": "failed",
+          "reason": "자연스러움 판정 실패: んばかりに, てやまない",
+          "judge_status": "ran",
+          "judge_failed": [
+            "んばかりに",
+            "てやまない"
+          ],
+          "judge_notes": {
+            "んばかりに": "動詞ナイ形に接続するため「泣いているんばかりに」は誤り。",
+            "てやまない": "動詞テ形に接続するため「良かったとてやまない」は誤り。"
+          },
+          "code_problem_ids": [],
+          "evidence": [
+            {
+              "pattern": "んばかりに",
+              "source": "judge",
+              "sentence": "店内の喧騒とは裏腹に、窓の外はまだ雨粒がガラスを叩きつける音が響き、まるで世界が泣いているんばかりに荒れ狂っていた。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 34.9,
+              "n_sources": 1,
+              "n_qualified": 1,
+              "hosts": [
+                "u-tokyo.ac.jp"
+              ],
+              "classes": [
+                "academic"
+              ],
+              "verdict": "unnatural",
+              "basis": "「んばかりに」は動詞の未然形に接続するのが一般的であり、V-ている形への接続例が学術論文等に見当たらないため。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "いかんによって",
+            "にたえない",
+            "までもなく",
+            "にほかならない",
+            "なりに"
+          ],
+          "outcome": "passed",
+          "reason": "",
+          "judge_status": "call_failed",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        }
+      ],
+      "topic": "決断の時",
+      "passage": "人生の岐路に立つ時、その選択がいかに重要であるかは、経験した者にしか理解できないだろう。あの時の私はまさにその渦中にあり、どの道を選ぶべきか、来る日も来る日も考えあぐねていた。周囲の期待に応えるべきか、それとも自身の夢を追うべきか、その決断一つで未来が大きく変わることは、想像に堪えないほど重い事実だった。周囲の意見は様々で、それぞれの助言は私のためを思ってのことであることは理解できた。しかし、結局のところ、最終的な判断を下すのは私自身にほかならない。ある日、恩師が「成功するか否かは、君の覚悟いかんによって決まる」と静かに語った。その言葉は、私の心に深く響き、迷いを断ち切るきっかけとなった。他人の評価を気にしているうちは、自分なりの答えなど見つからない。そう気づいた私は、自分の心と真剣に向き合うことにした。結果として、私は周囲の期待とは異なる道を選んだ。それは決して簡単な選択ではなかったが、後悔は微塵もなかった。なぜなら、その決断は、他ならぬ私自身の意志に基づいたものだったからだ。今振り返れば、あの時の選択は、人生における大きな転機であった。あの経験があったからこそ、私は自分なりの価値観を確立し、困難に直面しても乗り越える強さを身につけることができたのだ。自分の人生を生きる上で、他人の意見に耳を傾けるまでもなく、最終的に信じるべきは自分自身である。",
+      "usages": [
+        {
+          "pattern": "いかんによって",
+          "sentence": "ある日、恩師が「成功するか否かは、君の覚悟いかんによって決まる」と静かに語った。"
+        },
+        {
+          "pattern": "にたえない",
+          "sentence": "周囲の期待に応えるべきか、それとも自身の夢を追うべきか、その決断一つで未来が大きく変わることは、想像に堪えないほど重い事実だった。"
+        },
+        {
+          "pattern": "までもなく",
+          "sentence": "自分の人生を生きる上で、他人の意見に耳を傾けるまでもなく、最終的に信じるべきは自分自身である。"
+        },
+        {
+          "pattern": "にほかならない",
+          "sentence": "しかし、結局のところ、最終的な判断を下すのは私自身にほかならない。"
+        },
+        {
+          "pattern": "なりに",
+          "sentence": "他人の評価を気にしているうちは、自分なりの答えなど見つからない。"
+        }
+      ]
     }
   ],
   "overturned": [
