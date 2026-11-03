@@ -128,6 +128,154 @@
           "sentence": "彼の演奏を聴いていると、あながち彼がただの無愛想な人だとは言えない気がしてくる。"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-11-03",
+      "category": "인용",
+      "result": "failed",
+      "run_id": "41691104741",
+      "commit_sha": "acd86bcc4577ef55740a5da60050c03cea5b8859",
+      "manual": false,
+      "rules_version": "2026-10-20-p3",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "とか〜とか",
+        "んだって",
+        "そうだ(様態)",
+        "っぽい",
+        "ということだ"
+      ],
+      "attempts_count": 4,
+      "judge_summary": {
+        "ran": 4
+      },
+      "final_judge_status": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "らしい",
+            "みたいだ",
+            "とか(伝聞)",
+            "げだ",
+            "とのことだ"
+          ],
+          "outcome": "failed",
+          "reason": "자연스러움 판정 실패: げだ",
+          "judge_status": "ran",
+          "judge_failed": [
+            "げだ"
+          ],
+          "judge_notes": {
+            "げだ": "名詞「様子」に「のげだ」と接続するのは文法的に誤り。"
+          },
+          "code_problem_ids": [],
+          "evidence": [
+            {
+              "pattern": "げだ",
+              "source": "judge",
+              "sentence": "その時の彼の表情は、少し疲れた様子のげだ、しかしどこか充実しているようにも見えた。",
+              "status": "error",
+              "model": "gemini-2.5-flash",
+              "latency_s": 89.5,
+              "n_sources": 0,
+              "n_qualified": 0,
+              "hosts": [],
+              "classes": [],
+              "verdict": "unavailable",
+              "basis": ""
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "らしい",
+            "みたいだ",
+            "とか(伝聞)",
+            "げだ",
+            "とのことだ"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: みたいだ, とのことだ",
+          "judge_status": "ran",
+          "judge_failed": [
+            "げだ"
+          ],
+          "judge_notes": {
+            "げだ": "「持っている」のような動詞テ形に「げ」は接続せず、文法的に誤り。"
+          },
+          "code_problem_ids": [],
+          "evidence": [
+            {
+              "pattern": "げだ",
+              "source": "judge",
+              "sentence": "その表情から、自分の店の商品に自信を持っているげだ。",
+              "status": "ok",
+              "model": "gemini-2.5-flash",
+              "latency_s": 31.1,
+              "n_sources": 1,
+              "n_qualified": 0,
+              "hosts": [
+                "gges.xyz"
+              ],
+              "classes": [
+                "other"
+              ],
+              "verdict": "unnatural",
+              "basis": "学術論文の「げ」の用法分析において、動詞の「ている形」への接続例が見られないため。"
+            }
+          ],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "とか〜とか",
+            "んだって",
+            "そうだ(様態)",
+            "っぽい",
+            "ということだ"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: っぽい, ということだ",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        },
+        {
+          "attempt": 4,
+          "temperature": 0.2,
+          "patterns": [
+            "とか〜とか",
+            "んだって",
+            "そうだ(様態)",
+            "っぽい",
+            "ということだ"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: そうだ(様態)",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-2.5-flash",
+          "proofread": null
+        }
+      ]
     }
   ],
   "overturned": []
