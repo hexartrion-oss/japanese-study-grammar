@@ -1461,6 +1461,92 @@
           "reason": "구조 조건 미충족: くせに"
         }
       ]
+    },
+    {
+      "date": "2026-11-17",
+      "category": "인용",
+      "failures": [
+        {
+          "pattern": "に違いない",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "由",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "ということだ",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "っぽい",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "げだ",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "に違いない",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "由",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "ということだ",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "っぽい",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "げだ",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "に決まっている",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "そうだ(伝聞)",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "とのことだ",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "とか(伝聞)",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "そうだ(様態)",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "に決まっている",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "そうだ(伝聞)",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "とのことだ",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "とか(伝聞)",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "そうだ(様態)",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        }
+      ]
     }
   ]
 }
