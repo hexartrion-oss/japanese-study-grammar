@@ -1109,6 +1109,110 @@
           "sentence": "見知らぬ人が自分を助けてくれるなんて、まさかこんな奇跡のようなことがあるとは思わなかった。"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-11-17",
+      "category": "인용",
+      "result": "failed",
+      "run_id": "44159059395",
+      "commit_sha": "2a8009f9fae7bd4ef39731d89114ac4d6d30feac",
+      "manual": false,
+      "rules_version": "2026-10-20-p3",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "に決まっている",
+        "そうだ(伝聞)",
+        "とのことだ",
+        "とか(伝聞)",
+        "そうだ(様態)"
+      ],
+      "attempts_count": 4,
+      "judge_summary": {},
+      "final_judge_status": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "に違いない",
+            "由",
+            "ということだ",
+            "っぽい",
+            "げだ"
+          ],
+          "outcome": "failed",
+          "reason": "Gemini 빈 응답(생성 호출 실패)",
+          "judge_status": null,
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": null,
+          "proofread": null
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "に違いない",
+            "由",
+            "ということだ",
+            "っぽい",
+            "げだ"
+          ],
+          "outcome": "failed",
+          "reason": "Gemini 빈 응답(생성 호출 실패)",
+          "judge_status": null,
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": null,
+          "proofread": null
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "に決まっている",
+            "そうだ(伝聞)",
+            "とのことだ",
+            "とか(伝聞)",
+            "そうだ(様態)"
+          ],
+          "outcome": "failed",
+          "reason": "Gemini 빈 응답(생성 호출 실패)",
+          "judge_status": null,
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": null,
+          "proofread": null
+        },
+        {
+          "attempt": 4,
+          "temperature": 0.2,
+          "patterns": [
+            "に決まっている",
+            "そうだ(伝聞)",
+            "とのことだ",
+            "とか(伝聞)",
+            "そうだ(様態)"
+          ],
+          "outcome": "failed",
+          "reason": "Gemini 빈 응답(생성 호출 실패)",
+          "judge_status": null,
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": null,
+          "proofread": null
+        }
+      ]
     }
   ],
   "overturned": [
