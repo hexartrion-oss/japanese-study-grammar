@@ -1547,6 +1547,92 @@
           "reason": "Gemini 빈 응답(생성 호출 실패)"
         }
       ]
+    },
+    {
+      "date": "2026-11-18",
+      "category": "강조·역접",
+      "failures": [
+        {
+          "pattern": "あげく",
+          "reason": "문형 누락: だけに"
+        },
+        {
+          "pattern": "だけに",
+          "reason": "문형 누락: だけに"
+        },
+        {
+          "pattern": "くせに",
+          "reason": "문형 누락: だけに"
+        },
+        {
+          "pattern": "さえ",
+          "reason": "문형 누락: だけに"
+        },
+        {
+          "pattern": "ながらも",
+          "reason": "문형 누락: だけに"
+        },
+        {
+          "pattern": "あげく",
+          "reason": "구조 조건 미충족: くせに"
+        },
+        {
+          "pattern": "だけに",
+          "reason": "구조 조건 미충족: くせに"
+        },
+        {
+          "pattern": "くせに",
+          "reason": "구조 조건 미충족: くせに"
+        },
+        {
+          "pattern": "さえ",
+          "reason": "구조 조건 미충족: くせに"
+        },
+        {
+          "pattern": "ながらも",
+          "reason": "구조 조건 미충족: くせに"
+        },
+        {
+          "pattern": "にしても/にしろ/にせよ",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "といっても",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "つつも",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "にもかかわらず",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "なんて",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "にしても/にしろ/にせよ",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "といっても",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "つつも",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "にもかかわらず",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "なんて",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        }
+      ]
     }
   ]
 }
