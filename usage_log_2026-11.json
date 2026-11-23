@@ -1477,6 +1477,136 @@
           "sentence": "彼の活躍は単に日本国内にとどまらず、海外の展覧会でも大きな注目を集めるようになった。"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-11-23",
+      "category": "부사",
+      "result": "passed",
+      "run_id": "45278376289",
+      "commit_sha": "896a77303b495f1f6b00a02c03cea6eb825f890c",
+      "manual": false,
+      "rules_version": "2026-10-20-p3",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "なにも〜なくても",
+        "むしろ〜べきだ",
+        "せっかく〜のに",
+        "どうにか〜ことができた",
+        "よほど〜のか"
+      ],
+      "attempts_count": 4,
+      "judge_summary": {
+        "ran": 3
+      },
+      "final_judge_status": "ran",
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "いっそ〜ばよかった",
+            "どうも〜ようだ",
+            "あながち〜とは言えない",
+            "まんざら〜でもない",
+            "どうせ〜なら"
+          ],
+          "outcome": "failed",
+          "reason": "생성 중간에 잘림(마지막 문장이 완성되지 않음)",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-3.6-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "いっそ〜ばよかった",
+            "どうも〜ようだ",
+            "あながち〜とは言えない",
+            "まんざら〜でもない",
+            "どうせ〜なら"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: まんざら〜でもない",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-3.6-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "なにも〜なくても",
+            "むしろ〜べきだ",
+            "せっかく〜のに",
+            "どうにか〜ことができた",
+            "よほど〜のか"
+          ],
+          "outcome": "failed",
+          "reason": "Gemini 빈 응답(생성 호출 실패)",
+          "judge_status": null,
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": null,
+          "proofread": null
+        },
+        {
+          "attempt": 4,
+          "temperature": 0.2,
+          "patterns": [
+            "なにも〜なくても",
+            "むしろ〜べきだ",
+            "せっかく〜のに",
+            "どうにか〜ことができた",
+            "よほど〜のか"
+          ],
+          "outcome": "passed",
+          "reason": "",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-3.6-flash",
+          "proofread": null
+        }
+      ],
+      "topic": "雨の日のカフェ",
+      "passage": "先週末、楽しみにしていたキャンプが突然の土砂降りでキャンセルになってしまった。せっかく数か月前から入念に準備を進めていたのに、悪天候には勝てなかった。私はひどく落胆し、気分転換のために近所の静かなカフェへ向かった。落ち込んだ気持ちをなだめるように温かい紅茶を注文し、ぼんやりと窓の外を眺めた。カウンターの奥では、新人と思われる店員が何度も失敗しながらコーヒーを淹れていた。練習を見守るマスターは決して叱らず、笑顔で丁寧にコツを教えていた。店員はよほど悔しいのか、時折唇を噛み締めながら何度も挑戦を重ねていた。その熱心な姿をじっと見つめているうちに、自分の後ろ向きな心が少しずつ変化していった。なにも今日という一日を無駄にしてまで落ち込まなくてもいいはずだ。休日が台無しになったと嘆くのではなく、むしろこの時間を自分を見つめ直す好機と捉えるべきだ。バッグから本を取り出して静かに読み進め、どうにか穏やかな気持ちを取り戻すことができた。カフェを出る頃には雨も上がり、冷たい風が爽やかに感じられた。",
+      "usages": [
+        {
+          "pattern": "なにも〜なくても",
+          "sentence": "なにも今日という一日を無駄にしてまで落ち込まなくてもいいはずだ。"
+        },
+        {
+          "pattern": "むしろ〜べきだ",
+          "sentence": "休日が台無しになったと嘆くのではなく、むしろこの時間を自分を見つめ直す好機と捉えるべきだ。"
+        },
+        {
+          "pattern": "せっかく〜のに",
+          "sentence": "せっかく数か月前から入念に準備を進めていたのに、悪天候には勝てなかった。"
+        },
+        {
+          "pattern": "どうにか〜ことができた",
+          "sentence": "バッグから本を取り出して静かに読み進め、どうにか穏やかな気持ちを取り戻すことができた。"
+        },
+        {
+          "pattern": "よほど〜のか",
+          "sentence": "店員はよほど悔しいのか、時折唇を噛み締めながら何度も挑戦を重ねていた。"
+        }
+      ]
     }
   ],
   "overturned": [
