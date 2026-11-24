@@ -1607,6 +1607,112 @@
           "sentence": "店員はよほど悔しいのか、時折唇を噛み締めながら何度も挑戦を重ねていた。"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-11-24",
+      "category": "인용",
+      "result": "failed",
+      "run_id": "45485833649",
+      "commit_sha": "b82746968f2164adc0449c7e173fdfe219eb827a",
+      "manual": false,
+      "rules_version": "2026-10-20-p3",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "とか〜とか",
+        "由",
+        "ようだ",
+        "みたいだ",
+        "んじゃないか"
+      ],
+      "attempts_count": 4,
+      "judge_summary": {
+        "ran": 4
+      },
+      "final_judge_status": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "という",
+            "げだ",
+            "に違いない",
+            "そうだ(様態)",
+            "とか(伝聞)"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: げだ",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-3.6-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "という",
+            "げだ",
+            "に違いない",
+            "そうだ(様態)",
+            "とか(伝聞)"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: そうだ(様態)",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-3.6-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "とか〜とか",
+            "由",
+            "ようだ",
+            "みたいだ",
+            "んじゃないか"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: 由, みたいだ",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-3.6-flash",
+          "proofread": null
+        },
+        {
+          "attempt": 4,
+          "temperature": 0.2,
+          "patterns": [
+            "とか〜とか",
+            "由",
+            "ようだ",
+            "みたいだ",
+            "んじゃないか"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: みたいだ",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-3.6-flash",
+          "proofread": null
+        }
+      ]
     }
   ],
   "overturned": [
