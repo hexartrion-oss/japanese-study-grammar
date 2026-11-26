@@ -1719,6 +1719,92 @@
           "reason": "문형 누락: みたいだ"
         }
       ]
+    },
+    {
+      "date": "2026-11-26",
+      "category": "비즈니스",
+      "failures": [
+        {
+          "pattern": "ないことには",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "にわたって",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "として",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "に伴って",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "を機に",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "ないことには",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "にわたって",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "として",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "に伴って",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "を機に",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "ばかりに",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "上で",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "に関しては",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "次第だ",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "に基づいて",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "ばかりに",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "上で",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "に関しては",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "次第だ",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        },
+        {
+          "pattern": "に基づいて",
+          "reason": "Gemini 빈 응답(생성 호출 실패)"
+        }
+      ]
     }
   ]
 }
