@@ -1887,6 +1887,150 @@
           "proofread": null
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "date": "2026-11-27",
+      "category": "N1문어체",
+      "result": "failed",
+      "run_id": "46058679517",
+      "commit_sha": "fe5d9625d0bd877ba7c4a35aec46dcd7d073c88e",
+      "manual": false,
+      "rules_version": "2026-10-20-p3",
+      "evidence_mode": "shadow",
+      "judge_model": "gemini-3.5-flash",
+      "patterns": [
+        "なくしては",
+        "を禁じ得ない",
+        "にとどまらず",
+        "べく",
+        "までもなく"
+      ],
+      "attempts_count": 4,
+      "judge_summary": {
+        "ran": 4
+      },
+      "final_judge_status": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "temperature": 0.7,
+          "patterns": [
+            "いかんによって",
+            "なりに",
+            "んばかりに",
+            "にたえない",
+            "たる(者)"
+          ],
+          "outcome": "failed",
+          "reason": "생성 중간에 잘림(마지막 문장이 완성되지 않음)",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-3.6-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 2,
+          "temperature": 0.6,
+          "patterns": [
+            "いかんによって",
+            "なりに",
+            "んばかりに",
+            "にたえない",
+            "たる(者)"
+          ],
+          "outcome": "failed",
+          "reason": "생성 중간에 잘림(마지막 문장이 완성되지 않음)",
+          "judge_status": "ran",
+          "judge_failed": [
+            "いかんによって"
+          ],
+          "judge_notes": {
+            "いかんによって": "後節に「決まる」「左右される」等の結果の変化を表す言葉がなく不自然なため。"
+          },
+          "code_problem_ids": [],
+          "evidence": [
+            {
+              "pattern": "いかんによって",
+              "source": "judge",
+              "sentence": "この作品の評価いかんによって、彼が一人前の職人として認められる。",
+              "status": "error",
+              "model": "gemini-2.5-flash",
+              "latency_s": 0.2,
+              "n_sources": 0,
+              "n_qualified": 0,
+              "hosts": [],
+              "classes": [],
+              "verdict": "unavailable",
+              "basis": ""
+            }
+          ],
+          "gen_model": "gemini-3.6-flash",
+          "proofread": []
+        },
+        {
+          "attempt": 3,
+          "temperature": 0.4,
+          "patterns": [
+            "なくしては",
+            "を禁じ得ない",
+            "にとどまらず",
+            "べく",
+            "までもなく"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: までもなく",
+          "judge_status": "ran",
+          "judge_failed": [
+            "を禁じ得ない"
+          ],
+          "judge_notes": {
+            "を禁じ得ない": "驚きという感情は問題ないが「驚きを禁じ得ない」は文法的・動詞の結びつきとして不自然"
+          },
+          "code_problem_ids": [],
+          "evidence": [
+            {
+              "pattern": "を禁じ得ない",
+              "source": "judge",
+              "sentence": "出来上がった和菓子を一口食べたとき、周囲にいた若い弟子たちの顔には感銘の笑みが浮かび、誰もがその完成度の高さに驚きを禁じ得なかった。",
+              "status": "error",
+              "model": "gemini-2.5-flash",
+              "latency_s": 0.1,
+              "n_sources": 0,
+              "n_qualified": 0,
+              "hosts": [],
+              "classes": [],
+              "verdict": "unavailable",
+              "basis": ""
+            }
+          ],
+          "gen_model": "gemini-3.6-flash",
+          "proofread": null
+        },
+        {
+          "attempt": 4,
+          "temperature": 0.2,
+          "patterns": [
+            "なくしては",
+            "を禁じ得ない",
+            "にとどまらず",
+            "べく",
+            "までもなく"
+          ],
+          "outcome": "failed",
+          "reason": "문형 누락: までもなく",
+          "judge_status": "ran",
+          "judge_failed": [],
+          "judge_notes": {},
+          "code_problem_ids": [],
+          "evidence": [],
+          "gen_model": "gemini-3.6-flash",
+          "proofread": null
+        }
+      ]
     }
   ],
   "overturned": [
